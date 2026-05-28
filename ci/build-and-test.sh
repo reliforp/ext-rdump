@@ -53,9 +53,15 @@ php -d extension="$SO" --ri rdump
 
 # --- phpt suite (when run-tests.php is available) --------------------
 if [ -f run-tests.php ]; then
-    NO_INTERACTION=1 TEST_PHP_ARGS="-d extension=$SO" \
+    # Older run-tests.php (PHP 7.0-7.x) does not auto-detect the PHP
+    # binary and aborts unless TEST_PHP_EXECUTABLE is set explicitly.
+    NO_INTERACTION=1 \
+    TEST_PHP_EXECUTABLE="$(command -v php)" \
+    TEST_PHP_ARGS="-d extension=$SO" \
         php run-tests.php -q tests/ | tee /tmp/rdump-run-tests.log
-    if grep -q 'FAIL' /tmp/rdump-run-tests.log; then
+    # Fail on reported test failures and on run-tests' own setup errors
+    # (e.g. a missing executable) so the suite can't silently no-op.
+    if grep -Eq 'FAIL|^ERROR:' /tmp/rdump-run-tests.log; then
         echo '::error::phpt suite reported failures'
         cat tests/*.diff 2>/dev/null || true
         exit 1
