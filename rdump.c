@@ -507,32 +507,35 @@ static void rdump_clear_runtime_oom_dump(void)
 
 static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
 {
-    const char *msg = RDUMP_ERROR_MSG;
+    /* This runs on every diagnostic that goes through zend_error_cb
+     * (notices, warnings, deprecations, ...). The auto-dump is the cold,
+     * exceptional path, so keep the common case to a single predicted-
+     * not-taken comparison and resolve everything else only inside. */
+    if (UNEXPECTED(type == E_ERROR && !RDUMP_G(in_oom_dump))) {
+        /* Runtime override (rdump_set_oom_dump) wins over the INI default;
+         * an override set to "" force-disables even when the INI has a path. */
+        const char *path;
+        int full;
+        if (RDUMP_G(oom_dump_runtime_set)) {
+            path = RDUMP_G(oom_dump_runtime);
+            full = RDUMP_G(oom_dump_runtime_full) ? 1 : 0;
+        } else {
+            path = RDUMP_G(oom_dump);
+            full = RDUMP_G(oom_dump_full) ? 1 : 0;
+        }
 
-    /* Runtime override (rdump_set_oom_dump) wins over the INI default;
-     * an override set to "" force-disables even when the INI has a path. */
-    const char *path;
-    int full;
-    if (RDUMP_G(oom_dump_runtime_set)) {
-        path = RDUMP_G(oom_dump_runtime);
-        full = RDUMP_G(oom_dump_runtime_full) ? 1 : 0;
-    } else {
-        path = RDUMP_G(oom_dump);
-        full = RDUMP_G(oom_dump_full) ? 1 : 0;
-    }
-
-    if (type == E_ERROR
-        && !RDUMP_G(in_oom_dump)
-        && path != NULL
-        && path[0] != '\0'
-        && msg != NULL
-        && strncmp(msg, RDUMP_OOM_PREFIX, sizeof(RDUMP_OOM_PREFIX) - 1) == 0
-    ) {
-        char *err = NULL;
-        RDUMP_G(in_oom_dump) = 1;
-        /* Best-effort: this is the death path, so swallow any failure. */
-        (void)rdump_write_file(path, full, &err);
-        RDUMP_G(in_oom_dump) = 0;
+        const char *msg = RDUMP_ERROR_MSG;
+        if (path != NULL
+            && path[0] != '\0'
+            && msg != NULL
+            && strncmp(msg, RDUMP_OOM_PREFIX, sizeof(RDUMP_OOM_PREFIX) - 1) == 0
+        ) {
+            char *err = NULL;
+            RDUMP_G(in_oom_dump) = 1;
+            /* Best-effort: this is the death path, so swallow any failure. */
+            (void)rdump_write_file(path, full, &err);
+            RDUMP_G(in_oom_dump) = 0;
+        }
     }
     rdump_original_error_cb(RDUMP_ERROR_CB_PASSTHRU);
 }
