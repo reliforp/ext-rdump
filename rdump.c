@@ -602,7 +602,7 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
 }
 
 /* ------------------------------------------------------------------ */
-/* PHP function: void rdump_set_oom_dump(?string $path, bool $full=false)
+/* PHP function: bool rdump_set_oom_dump(?string $path, bool $full=false)
  *
  * Runtime toggle for the OOM auto-dump, overriding the INI default for
  * the rest of the current request:
@@ -610,6 +610,8 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
  *     a per-request/per-pid filename the static INI cannot express);
  *   - ""             -> force-disable even if rdump.oom_dump is set;
  *   - null           -> clear the override and fall back to the INI.
+ * Returns true on success, or false (with an E_WARNING) if the path could
+ * not be stored, in which case the override is left cleared.
  */
 /* ------------------------------------------------------------------ */
 
@@ -633,10 +635,22 @@ PHP_FUNCTION(rdump_set_oom_dump)
     rdump_clear_runtime_oom_dump();
 
     if (path != NULL) {
-        RDUMP_G(oom_dump_runtime) = strdup(path);
+        char *copy = strdup(path);
+        if (copy == NULL) {
+            /* strdup can fail exactly when callers reach for this API -- near
+             * the memory_limit. Leave the override cleared (not half-set) so
+             * resolution falls back to the rdump.oom_dump INI default rather
+             * than silently disabling the auto-dump, and signal the failure. */
+            php_error_docref(NULL, E_WARNING,
+                "rdump_set_oom_dump: out of memory copying the path");
+            RETURN_FALSE;
+        }
+        RDUMP_G(oom_dump_runtime) = copy;
         RDUMP_G(oom_dump_runtime_set) = 1;
         RDUMP_G(oom_dump_runtime_full) = full ? 1 : 0;
     }
+
+    RETURN_TRUE;
 }
 
 /* ------------------------------------------------------------------ */

@@ -124,7 +124,9 @@ rdump_set_oom_dump("/var/log/oom-" . getmypid() . ".rdump");
 ```
 
 The runtime setting applies to the current request and takes precedence over
-the `rdump.oom_dump` default.
+the `rdump.oom_dump` default. It returns `true` on success, or `false` (with an
+`E_WARNING`) if the path could not be stored, leaving the previous default in
+effect rather than silently disabling the dump.
 
 ## Analyse with reli
 
