@@ -59,9 +59,10 @@ The dump reflects the process exactly as it is at the moment of the call —
 including the live VM call stack — so trigger it where it matters:
 
 ```php
-// On memory_limit exhaustion. Free a small reserve first so the dump call
-// has VM-stack headroom; rdump_dump() itself uses libc malloc, off the limit.
-$reserve = str_repeat("\0", 256 * 1024);
+// On memory_limit exhaustion. Free a few KB first so the handler's own
+// allocations (error_get_last() etc.) have headroom after the OOM;
+// rdump_dump() builds the dump with libc malloc, off the memory_limit heap.
+$reserve = str_repeat("\0", 4096);
 register_shutdown_function(function () use (&$reserve) {
     $reserve = null;
     $e = error_get_last();
@@ -79,9 +80,9 @@ if (memory_get_usage() > 256 * 1024 * 1024) {
 pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
 ```
 
-> The reserve only covers the VM-stack frame the call pushes (a new ~256 KB
-> page would otherwise be an emalloc that can fail at the limit); the dump
-> itself is off the `memory_limit` heap.
+> The few-KB reserve just gives the handler's own post-OOM bookkeeping
+> (`error_get_last()` etc. — a few hundred bytes) room to run; rdump_dump()'s
+> own buffers are libc `malloc`, off the `memory_limit` heap.
 
 Pass `$full = true` for a self-contained dump (also embeds read-only code
 segments) when you will analyse it on a host that lacks the original binaries.
