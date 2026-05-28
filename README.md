@@ -129,10 +129,25 @@ rdump.oom_dump_max=5            ; up to 5 dumps over the worker's lifetime (0 = 
 rdump.oom_dump_min_interval=60  ; ...and at least 60s apart
 ```
 
+The per-worker count still leaves the fleet total unbounded — 200 workers writing
+one 130 MB dump each is 26 GB. To cap the *combined* footprint, set a byte budget
+(accepts `K`/`M`/`G` suffixes); before each auto-dump the extension sums the
+`*.rdump` files already in the dump's directory and skips if they meet the budget:
+
+```ini
+rdump.oom_dump_max_total=2G     ; skip the auto-dump once *.rdump there totals >= 2G (0 = off)
+```
+
+Two caveats on the budget: it is a *soft* limit — concurrent workers can each pass
+the check and overshoot, and the dump that crosses the line is still written (so
+the real ceiling is roughly budget + one round of dumps). And it counts **every**
+`*.rdump` in that directory, so give OOM dumps a directory of their own if other
+`.rdump` files live alongside.
+
 A dump attempt counts toward the cap whether it succeeds or not, so a bad path or
-a full disk can't retry forever either. This guard applies only to the automatic
-OOM dump — explicit `rdump_dump()` calls are never throttled. (Combine the cap
-with a `%p` path so each worker still writes a distinct file.)
+a full disk can't retry forever either. These guards apply only to the automatic
+OOM dump — explicit `rdump_dump()` calls are never throttled. (Combine them with a
+`%p` path so each worker still writes a distinct file.)
 
 You can also toggle it at runtime — handy for a per-request/per-pid filename,
 or when you cannot edit php.ini:

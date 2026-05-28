@@ -35,6 +35,7 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 ZEND_DECLARE_MODULE_GLOBALS(rdump)
 
@@ -308,6 +309,68 @@ static int64_t rdump_rss_bytes(void)
         page = 4096;
     }
     return (int64_t)(resident * (unsigned long long)page);
+}
+
+/* Parse a byte quantity like "500", "16K", "256M", "2G" (binary multiples,
+ * case-insensitive suffix) into bytes. Negatives / garbage -> 0. */
+static zend_long rdump_parse_bytes(const char *s)
+{
+    if (s == NULL) {
+        return 0;
+    }
+    while (*s == ' ' || *s == '\t') {
+        s++;
+    }
+    char *end = NULL;
+    long long v = strtoll(s, &end, 10);
+    if (end == s || v < 0) {
+        return 0;
+    }
+    while (*end == ' ' || *end == '\t') {
+        end++;
+    }
+    switch (*end) {
+        case 'k': case 'K': v *= 1024LL; break;
+        case 'm': case 'M': v *= 1024LL * 1024; break;
+        case 'g': case 'G': v *= 1024LL * 1024 * 1024; break;
+        case 't': case 'T': v *= 1024LL * 1024 * 1024 * 1024; break;
+        default: break;
+    }
+    return v < 0 ? 0 : (zend_long)v;
+}
+
+/* Sum the sizes of every *.rdump file in dir, skipping except_base (the file
+ * an overwrite would replace, so it must not count toward the new total).
+ * Best-effort: unreadable entries are ignored. Used to enforce a disk budget
+ * shared across all workers writing OOM dumps into the same directory. */
+static uint64_t rdump_dir_rdump_total(const char *dir, const char *except_base)
+{
+    DIR *d = opendir(dir);
+    if (!d) {
+        return 0;
+    }
+    uint64_t total = 0;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        const char *n = ent->d_name;
+        size_t ln = strlen(n);
+        if (ln < 6 || strcmp(n + ln - 6, ".rdump") != 0) {
+            continue;
+        }
+        if (except_base != NULL && strcmp(n, except_base) == 0) {
+            continue;
+        }
+        char full[4096];
+        if ((size_t)snprintf(full, sizeof(full), "%s/%s", dir, n) >= sizeof(full)) {
+            continue;
+        }
+        struct stat st;
+        if (stat(full, &st) == 0 && S_ISREG(st.st_mode)) {
+            total += (uint64_t)st.st_size;
+        }
+    }
+    closedir(d);
+    return total;
 }
 
 /* ------------------------------------------------------------------ */
@@ -588,22 +651,48 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
              * every request, so cap the auto-dump over the worker's lifetime
              * by count and/or by minimum spacing. Both gates apply together;
              * the default max of 1 keeps it to a single dump per worker. */
+            char expanded[4096];
+            const char *out_path = path;
+            if (strchr(path, '%') != NULL
+                && rdump_expand_path(path, expanded, sizeof(expanded)) == 0
+            ) {
+                out_path = expanded;
+            }
+
             zend_long max = RDUMP_G(oom_dump_max);
             zend_long interval = RDUMP_G(oom_dump_min_interval);
+            zend_long budget = RDUMP_G(oom_dump_max_total);
             zend_long now = (zend_long)time(NULL);
             int capped = (max > 0 && RDUMP_G(oom_dump_count) >= max);
             int too_soon = (interval > 0
                 && RDUMP_G(oom_dump_last_ts) != 0
                 && now - RDUMP_G(oom_dump_last_ts) < interval);
 
-            if (!capped && !too_soon) {
-                char expanded[4096];
-                const char *out_path = path;
-                if (strchr(path, '%') != NULL
-                    && rdump_expand_path(path, expanded, sizeof(expanded)) == 0
-                ) {
-                    out_path = expanded;
+            /* Disk budget: if the *.rdump files already in the target's
+             * directory (excluding the one we'd overwrite) total at or above
+             * the budget, skip -- this is the only gate that bounds the
+             * combined footprint of many workers, not just one worker's rate.
+             * Best-effort: concurrent workers can each pass and overshoot. */
+            int over_budget = 0;
+            if (!capped && !too_soon && budget > 0) {
+                char pathcopy[4096];
+                const char *dir = ".";
+                const char *base = out_path;
+                if (snprintf(pathcopy, sizeof(pathcopy), "%s", out_path)
+                        < (int)sizeof(pathcopy)) {
+                    char *slash = strrchr(pathcopy, '/');
+                    if (slash != NULL) {
+                        *slash = '\0';
+                        dir = pathcopy[0] != '\0' ? pathcopy : "/";
+                        base = slash + 1;
+                    }
                 }
+                if (rdump_dir_rdump_total(dir, base) >= (uint64_t)budget) {
+                    over_budget = 1;
+                }
+            }
+
+            if (!capped && !too_soon && !over_budget) {
                 /* Count the attempt (success or failure) and stamp the time
                  * before writing, so a broken path or full disk cannot retry
                  * without bound either. */
@@ -677,6 +766,14 @@ PHP_FUNCTION(rdump_set_oom_dump)
 /* Module plumbing.                                                   */
 /* ------------------------------------------------------------------ */
 
+/* Accept memory_limit-style sizes ("256M", "2G", ...) for the dump budget. */
+static ZEND_INI_MH(OnUpdateRdumpBytes)
+{
+    zend_long *p = (zend_long *)ZEND_INI_GET_ADDR();
+    *p = rdump_parse_bytes(ZSTR_VAL(new_value));
+    return SUCCESS;
+}
+
 PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY(
         "rdump.oom_dump", "", PHP_INI_SYSTEM, OnUpdateString,
@@ -693,6 +790,10 @@ PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY(
         "rdump.oom_dump_min_interval", "0", PHP_INI_SYSTEM, OnUpdateLong,
         oom_dump_min_interval, zend_rdump_globals, rdump_globals
+    )
+    STD_PHP_INI_ENTRY(
+        "rdump.oom_dump_max_total", "0", PHP_INI_SYSTEM, OnUpdateRdumpBytes,
+        oom_dump_max_total, zend_rdump_globals, rdump_globals
     )
 PHP_INI_END()
 
@@ -711,6 +812,7 @@ static PHP_GINIT_FUNCTION(rdump)
     rdump_globals->oom_dump_full = 0;
     rdump_globals->oom_dump_max = 1;
     rdump_globals->oom_dump_min_interval = 0;
+    rdump_globals->oom_dump_max_total = 0;
     rdump_globals->oom_dump_count = 0;
     rdump_globals->oom_dump_last_ts = 0;
     rdump_globals->oom_dump_runtime = NULL;

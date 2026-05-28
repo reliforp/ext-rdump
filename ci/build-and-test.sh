@@ -189,3 +189,37 @@ if [ ! -s "$CAP_DUMP" ]; then
 fi
 echo "oom-cap (unlimited) OK"
 rm -f "$CAP_DUMP"
+
+# --- OOM auto-dump total-size budget --------------------------------
+# Unlike the per-worker count cap, the byte budget bounds the *combined*
+# footprint of every *.rdump in the dump directory, so a fleet of workers
+# cannot fill the disk one dump each. The directory is read at dump time, so
+# a single CLI OOM is enough to test it: pre-fill above the budget and the
+# dump must be skipped; drop the filler and it must be written.
+BUDGET_DIR=/tmp/rdump-budget
+rm -rf "$BUDGET_DIR"; mkdir -p "$BUDGET_DIR"
+dd if=/dev/zero of="$BUDGET_DIR/filler.rdump" bs=1024 count=2048 >/dev/null 2>&1  # 2 MiB
+
+# Over budget (2 MiB sibling, 1M cap): the OOM dump must be skipped.
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$BUDGET_DIR/oom-%p.rdump" \
+    -d rdump.oom_dump_max_total=1M \
+    -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
+if ls "$BUDGET_DIR"/oom-*.rdump >/dev/null 2>&1; then
+    echo "::error::rdump.oom_dump_max_total did not cap when over budget"
+    exit 1
+fi
+echo "oom-budget (over) OK"
+
+# Under budget (filler removed): the dump must now be written.
+rm -f "$BUDGET_DIR/filler.rdump"
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$BUDGET_DIR/oom-%p.rdump" \
+    -d rdump.oom_dump_max_total=1M \
+    -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
+if ! ls "$BUDGET_DIR"/oom-*.rdump >/dev/null 2>&1; then
+    echo "::error::rdump.oom_dump_max_total suppressed a dump while under budget"
+    exit 1
+fi
+echo "oom-budget (under) OK"
+rm -rf "$BUDGET_DIR"
