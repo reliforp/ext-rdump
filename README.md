@@ -16,7 +16,7 @@ Feed that file to reli and you can:
 - see the **call stack** at the moment of the dump,
 - find out **what objects/strings/arrays exist, how much memory each uses, and
   how they reference each other**,
-- automatically surface **memory leaks, resource leaks, circular references, and
+- help investigate **memory leaks, resource leaks, circular references, and
   memory bottlenecks**.
 
 `reli` can already do all of this by attaching from the outside, but that needs
