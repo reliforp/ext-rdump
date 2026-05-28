@@ -12,6 +12,7 @@ set -eux
 # have moved to archive.debian.org, so a plain `apt-get update` 404s.
 # Fall back to the archive in that case. PHPIZE_DEPS (gcc, make, autoconf,
 # ...) is set by the official php images.
+APT_INSTALL_FLAGS=""
 if ! apt-get update >/dev/null 2>&1; then
     cn=""
     if [ -r /etc/os-release ]; then
@@ -29,9 +30,16 @@ if ! apt-get update >/dev/null 2>&1; then
         fi
     fi
     echo "deb http://archive.debian.org/debian ${cn} main" > /etc/apt/sources.list
-    apt-get -o Acquire::Check-Valid-Until=false update
+    # The archive's signing keys have long expired (EXPKEYSIG), so the
+    # repo reads as unsigned. Permit the insecure archive explicitly --
+    # acceptable for a throwaway CI build container.
+    apt-get \
+        -o Acquire::Check-Valid-Until=false \
+        -o Acquire::AllowInsecureRepositories=true \
+        update
+    APT_INSTALL_FLAGS="--allow-unauthenticated"
 fi
-apt-get install -y --no-install-recommends $PHPIZE_DEPS
+apt-get install -y --no-install-recommends $APT_INSTALL_FLAGS $PHPIZE_DEPS
 
 php -v
 
