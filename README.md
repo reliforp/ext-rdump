@@ -2,9 +2,8 @@
 
 [![build](https://github.com/reliforp/ext-rdump/actions/workflows/build.yml/badge.svg)](https://github.com/reliforp/ext-rdump/actions/workflows/build.yml)
 
-Take a memory dump of the **current PHP process** at any point in time. The dump
-is just a file; you analyse it later, offline, with
-[reli](https://github.com/reliforp/reli-prof).
+Take a memory dump of the **current PHP process** at any point in time, for later
+analysis with [reli](https://github.com/reliforp/reli-prof).
 
 One call writes a snapshot of your process's memory to a file:
 
