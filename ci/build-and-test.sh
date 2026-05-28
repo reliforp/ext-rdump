@@ -119,3 +119,73 @@ else
     echo "::error::rdump_set_oom_dump() did not produce a dump"
     exit 1
 fi
+
+# --- OOM auto-dump runaway guard (built-in server, multi-request) ----
+# A one-shot CLI run can only OOM once (one process = one request), so it
+# cannot show that rdump.oom_dump_max caps dumps over a worker's lifetime.
+# The built-in server handles many requests in one process and survives each
+# per-request fatal -- the same shape as an FPM worker -- so it can. We probe
+# "did another dump get written?" by deleting the file between requests.
+cat > /tmp/rdump-oom-app.php <<'PHP'
+<?php $a = []; while (true) { $a[] = str_repeat("x", 100000); }
+PHP
+
+# One request, ignoring the 500 the OOM produces.
+rdump_req() {
+    php -r '$c = stream_context_create(["http" => ["ignore_errors" => true, "timeout" => 5]]);
+            @file_get_contents("http://127.0.0.1:" . $argv[1] . "/", false, $c);' "$1"
+    sleep 1   # let the synchronous in-request dump settle on disk
+}
+# Block until the server accepts connections (or give up).
+rdump_wait_up() {
+    i=0
+    while [ "$i" -lt 50 ]; do
+        if php -r '$f = @fsockopen("127.0.0.1", (int)$argv[1], $e, $s, 0.2);
+                   exit($f ? (fclose($f) ? 0 : 0) : 1);' "$1"; then
+            return 0
+        fi
+        i=$((i + 1)); sleep 0.1
+    done
+    echo "::error::built-in server did not come up"; return 1
+}
+
+CAP_DUMP=/tmp/rdump-cap.rdump
+
+# Default cap of 1: a second OOM request must NOT re-create a deleted dump.
+rm -f "$CAP_DUMP"
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$CAP_DUMP" -d rdump.oom_dump_max=1 \
+    -S 127.0.0.1:8077 /tmp/rdump-oom-app.php >/tmp/rdump-srv.log 2>&1 &
+SRV=$!
+rdump_wait_up 8077 || { kill "$SRV" 2>/dev/null || true; exit 1; }
+rdump_req 8077
+if [ ! -s "$CAP_DUMP" ]; then
+    echo "::error::first OOM request produced no dump"
+    kill "$SRV" 2>/dev/null || true; exit 1
+fi
+rm -f "$CAP_DUMP"
+rdump_req 8077
+kill "$SRV" 2>/dev/null || true; wait "$SRV" 2>/dev/null || true
+if [ -e "$CAP_DUMP" ]; then
+    echo "::error::rdump.oom_dump_max=1 did not cap: a second dump was written"
+    exit 1
+fi
+echo "oom-cap (max=1) OK"
+
+# Control: unlimited (max=0) SHOULD re-create the deleted dump on request 2.
+rm -f "$CAP_DUMP"
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$CAP_DUMP" -d rdump.oom_dump_max=0 \
+    -S 127.0.0.1:8078 /tmp/rdump-oom-app.php >/tmp/rdump-srv.log 2>&1 &
+SRV=$!
+rdump_wait_up 8078 || { kill "$SRV" 2>/dev/null || true; exit 1; }
+rdump_req 8078
+rm -f "$CAP_DUMP"
+rdump_req 8078
+kill "$SRV" 2>/dev/null || true; wait "$SRV" 2>/dev/null || true
+if [ ! -s "$CAP_DUMP" ]; then
+    echo "::error::rdump.oom_dump_max=0 unexpectedly suppressed the second dump"
+    exit 1
+fi
+echo "oom-cap (unlimited) OK"
+rm -f "$CAP_DUMP"
