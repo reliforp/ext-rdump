@@ -19,10 +19,9 @@ Feed that file to reli and you can:
 - help investigate **memory leaks, resource leaks, circular references, and
   memory bottlenecks**.
 
-`reli` can already do all of this by attaching from the outside, but that needs
-`ptrace` granted to the PHP runtime. `ext-rdump` instead dumps the process from
-*inside* itself — no ptrace, no external tooling on the target — which is often
-an easier thing to ship to production.
+`reli` can do all this by attaching from outside, but that needs `ptrace`.
+`ext-rdump` dumps from *inside* the process instead — no ptrace, nothing extra on
+the target — which is often easier to ship to production.
 
 ## Requirements
 
