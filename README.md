@@ -11,7 +11,8 @@ One call writes a snapshot of your process's memory to a file:
 rdump_dump('/tmp/app.rdump');
 ```
 
-Feed that file to reli and you can:
+Feed that file to [reli](https://github.com/reliforp/reli-prof/blob/HEAD/docs/memory/memory-dump.md)
+and you can:
 
 - see the **call stack** at the moment of the dump,
 - find out **what objects/strings/arrays exist, how much memory each uses, and
