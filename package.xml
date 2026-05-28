@@ -11,16 +11,12 @@ http://pear.php.net/dtd/package-2.0.xsd">
  <channel>pecl.php.net</channel>
  <summary>Capture a PHP process's own memory for offline analysis with reli (finding leaks, reference cycles, memory bottlenecks, etc.).</summary>
  <description>
-Take a memory snapshot of the current PHP process at any point in time and
-analyse it offline with reli (reliforp/reli-prof): inspect the call stack at
-the moment of the dump; see which objects, strings and arrays exist, how much
-memory each uses and how they reference each other; and automatically surface
-memory leaks, resource leaks, circular references and memory bottlenecks.
-
-A single rdump_dump() call writes the snapshot from inside the process, so the
-target needs no ptrace capability and no external tooling -- often easier to
-ship to production than attaching a profiler from the outside. Linux only;
-PHP 7.0-8.5, NTS and ZTS.
+ext-rdump writes a snapshot of the current PHP process's own memory to a
+file, in the RDUMP format used by reli (reliforp/reli-prof). The dump is
+analysed offline with reli to inspect the call stack and per-object memory
+usage and to find memory leaks, reference cycles and bottlenecks. The
+snapshot is taken from inside the process, so no ptrace is required.
+Linux only; PHP 7.0+, NTS and ZTS.
  </description>
  <lead>
   <name>sji</name>
