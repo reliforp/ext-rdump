@@ -59,12 +59,11 @@ The dump reflects the process exactly as it is at the moment of the call —
 including the live VM call stack — so trigger it where it matters:
 
 ```php
-// On memory_limit exhaustion. rdump_dump() builds the dump with libc malloc
-// (not charged to memory_limit). Calling it only pushes a VM-stack frame,
-// which reuses the VM stack's current ~256 KB page, so it normally runs from
-// a shutdown handler with no reserve (tested at a 2M limit, OOM ~186 frames
-// deep).
-register_shutdown_function(function () {
+// On memory_limit exhaustion. Free a small reserve first so the dump call
+// has VM-stack headroom; rdump_dump() itself uses libc malloc, off the limit.
+$reserve = str_repeat("\0", 256 * 1024);
+register_shutdown_function(function () use (&$reserve) {
+    $reserve = null;
     $e = error_get_last();
     if ($e !== null && strpos($e['message'], 'Allowed memory size') !== false) {
         rdump_dump('/tmp/oom.rdump');
@@ -80,17 +79,9 @@ if (memory_get_usage() > 256 * 1024 * 1024) {
 pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
 ```
 
-> Why no reserve is usually needed: `rdump_dump()` allocates with libc
-> `malloc`, not the `memory_limit`-governed Zend heap. The only Zend-heap cost
-> is the VM-stack frame for the call. The VM stack grows one ~256 KB page at a
-> time and a bailout leaves its position untouched (it only cuts the call
-> chain), so the handler and the dump call reuse the current page without an
-> emalloc — unless the stack sits right at a page boundary, when the call needs
-> a fresh ~256 KB page (an emalloc that can fail at the limit). For a hard
-> guarantee, pre-allocate a ~256 KB reserve and free it at the top of the
-> handler (`$reserve = null;` is a plain assignment, no new frame), so the
-> headroom is freed before the dump call — the same reason
-> reli-prof-sidecar-client's `MemoryLimitHandler` keeps one.
+> The reserve only covers the VM-stack frame the call pushes (a new ~256 KB
+> page would otherwise be an emalloc that can fail at the limit); the dump
+> itself is off the `memory_limit` heap.
 
 Pass `$full = true` for a self-contained dump (also embeds read-only code
 segments) when you will analyse it on a host that lacks the original binaries.
