@@ -9,7 +9,7 @@ http://pear.php.net/dtd/package-2.0
 http://pear.php.net/dtd/package-2.0.xsd">
  <name>rdump</name>
  <channel>pecl.php.net</channel>
- <summary>Capture a PHP process's own memory for offline analysis with reli (leaks, reference cycles, memory bottlenecks).</summary>
+ <summary>Capture a PHP process's own memory; reli then analyses it to find leaks, reference cycles and memory bottlenecks.</summary>
  <description>
 Take a memory snapshot of the current PHP process at any point in time and
 analyse it offline with reli (reliforp/reli-prof): inspect the call stack at
