@@ -144,6 +144,22 @@ php reli inspector:memory:analyze /tmp/app.rdump -f report
 Analysing on a different host? Either use `$full = true` at capture time, or
 point reli at a copy of the target's filesystem with `--dependency-root=/path`.
 
+## Security
+
+**A dump is a verbatim copy of your process's memory — treat the file as highly
+sensitive.** It can contain anything that was resident at the moment of capture:
+environment variables, database and API credentials, session tokens, decrypted
+request and response bodies, private keys, other users' data on a shared
+process, and so on.
+
+- The file is created `0600` (owner-only) with `O_NOFOLLOW` and `O_CLOEXEC`, and
+  a pre-existing target is `fchmod`-ed back to `0600`. Write it somewhere only
+  the intended user can read — not a world-readable temp dir or a webroot.
+- Delete it once you have finished analysing, and scrub it from any backups or
+  log shipping. Treat it like a credential dump, because it can be one.
+- Move dumps to the analysis host over a secure channel; do not email them or
+  drop them in shared buckets unencrypted.
+
 ## Notes
 
 - Linux only (the dump is built from `/proc/self/maps`).
@@ -155,9 +171,6 @@ point reli at a copy of the target's filesystem with `--dependency-root=/path`.
   and on the OOM death path it costs you nothing you were not already losing, but
   do not wire `rdump_dump()` into a hot, otherwise-healthy request path expecting
   it to be perfectly safe under heavy multi-threaded churn.
-- The dump file is created `0600` (owner-only) with `O_NOFOLLOW`, since it is a
-  verbatim copy of process memory — secrets and all. Keep it on storage only the
-  intended user can read, and delete it once analysed.
 - The output is byte-compatible with reli's RDUMP format (the same file
   `reli inspector:memory:dump` produces).
 - **No steady-state overhead.** The extension installs no executor or allocator
