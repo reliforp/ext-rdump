@@ -11,17 +11,16 @@ http://pear.php.net/dtd/package-2.0.xsd">
  <channel>pecl.php.net</channel>
  <summary>In-process self-memory dump in reli's RDUMP format.</summary>
  <description>
-ext-rdump writes the calling PHP process's own memory into reli's
-(reliforp/reli-prof) RDUMP dump-file format from inside the process,
-without ptrace or process_vm_readv.
+Take a memory snapshot of the current PHP process at any point in time and
+analyse it offline with reli (reliforp/reli-prof): inspect the call stack at
+the moment of the dump; see which objects, strings and arrays exist, how much
+memory each uses and how they reference each other; and automatically surface
+memory leaks, resource leaks, circular references and memory bottlenecks.
 
-It exposes rdump_dump(string $path, bool $full = false), resolves
-executor_globals / compiler_globals / basic_globals by their real
-addresses (working on both NTS and ZTS, PHP 7.0+), reads
-/proc/self/maps and copies the relevant regions straight out of its
-own address space. The output is byte-compatible with reli's
-MemoryDumpWriter and can be analysed offline with
-`reli inspector:memory:analyze` / `reli inspector:memory:dump:inspect`.
+A single rdump_dump() call writes the snapshot from inside the process, so the
+target needs no ptrace capability and no external tooling -- often easier to
+ship to production than attaching a profiler from the outside. Linux only;
+PHP 7.0-8.5, NTS and ZTS.
  </description>
  <lead>
   <name>sji</name>
