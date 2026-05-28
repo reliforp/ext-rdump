@@ -135,14 +135,20 @@ one 130 MB dump each is 26 GB. To cap the *combined* footprint, set a byte budge
 `*.rdump` files already in the dump's directory and skips if they meet the budget:
 
 ```ini
-rdump.oom_dump_max_total=2G     ; skip the auto-dump once *.rdump there totals >= 2G (0 = off)
+rdump.oom_dump_max_total=2G     ; skip the auto-dump once *.rdump there would exceed 2G (0 = off)
 ```
 
-Two caveats on the budget: it is a *soft* limit — concurrent workers can each pass
-the check and overshoot, and the dump that crosses the line is still written (so
-the real ceiling is roughly budget + one round of dumps). And it counts **every**
-`*.rdump` in that directory, so give OOM dumps a directory of their own if other
-`.rdump` files live alongside.
+The check adds the incoming dump's own minimum size (its ZendMM heap,
+`~memory_get_usage(true)`) to the existing total, so it skips *before* crossing
+the line rather than one dump after. A corollary: set the budget to at least a
+few times a single dump's size — a budget smaller than one dump means no dump is
+ever written.
+
+Two caveats remain: it is still a *soft* limit — concurrent workers can each pass
+the check and overshoot together, and the reservation is a lower bound, so the
+written dump can be larger than reserved. And it counts **every** `*.rdump` in
+that directory, so give OOM dumps a directory of their own if other `.rdump`
+files live alongside.
 
 A dump attempt counts toward the cap whether it succeeds or not, so a bad path or
 a full disk can't retry forever either. These guards apply only to the automatic

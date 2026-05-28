@@ -687,7 +687,15 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
                         base = slash + 1;
                     }
                 }
-                if (rdump_dir_rdump_total(dir, base) >= (uint64_t)budget) {
+                /* Also reserve what the new dump is known to contain -- at
+                 * least its ZendMM heap (~memory_get_usage(true)). The real
+                 * dump is never smaller than that, so adding this lower bound
+                 * never skips a dump that would have fit, yet it heads off the
+                 * "the dump that crosses the line still gets written" overshoot
+                 * in the cases where even the guaranteed minimum won't fit. */
+                uint64_t existing = rdump_dir_rdump_total(dir, base);
+                uint64_t incoming = (uint64_t)zend_memory_usage(1);
+                if (existing + incoming >= (uint64_t)budget) {
                     over_budget = 1;
                 }
             }

@@ -193,32 +193,48 @@ rm -f "$CAP_DUMP"
 # --- OOM auto-dump total-size budget --------------------------------
 # Unlike the per-worker count cap, the byte budget bounds the *combined*
 # footprint of every *.rdump in the dump directory, so a fleet of workers
-# cannot fill the disk one dump each. The directory is read at dump time, so
-# a single CLI OOM is enough to test it: pre-fill above the budget and the
-# dump must be skipped; drop the filler and it must be written.
+# cannot fill the disk one dump each. The check also reserves the incoming
+# dump's own minimum size (its ZendMM heap), so it skips before crossing the
+# line, not only after. The directory is read at dump time, so a single CLI
+# OOM tests it; sparse fillers (truncate) stand in for big dumps for free.
 BUDGET_DIR=/tmp/rdump-budget
 rm -rf "$BUDGET_DIR"; mkdir -p "$BUDGET_DIR"
-dd if=/dev/zero of="$BUDGET_DIR/filler.rdump" bs=1024 count=2048 >/dev/null 2>&1  # 2 MiB
 
-# Over budget (2 MiB sibling, 1M cap): the OOM dump must be skipped.
-php -d extension="$SO" -d memory_limit=8M \
-    -d rdump.oom_dump="$BUDGET_DIR/oom-%p.rdump" \
-    -d rdump.oom_dump_max_total=1M \
-    -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
-if ls "$BUDGET_DIR"/oom-*.rdump >/dev/null 2>&1; then
-    echo "::error::rdump.oom_dump_max_total did not cap when over budget"
+rdump_run_oom() {
+    php -d extension="$SO" -d memory_limit=8M \
+        -d rdump.oom_dump="$BUDGET_DIR/oom-%p.rdump" \
+        -d rdump.oom_dump_max_total="$1" \
+        -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
+}
+rdump_have_dump() { ls "$BUDGET_DIR"/oom-*.rdump >/dev/null 2>&1; }
+
+# Existing files already at/over the budget -> skip.
+truncate -s 600M "$BUDGET_DIR/filler.rdump"
+rdump_run_oom 512M
+if rdump_have_dump; then
+    echo "::error::rdump.oom_dump_max_total did not cap when existing files exceed it"
     exit 1
 fi
-echo "oom-budget (over) OK"
+echo "oom-budget (existing over) OK"
+rm -f "$BUDGET_DIR"/oom-*.rdump
 
-# Under budget (filler removed): the dump must now be written.
+# Existing under the budget, but existing + the incoming dump's minimum tips
+# over it -> skip. Proves the incoming-size reservation: 511M alone is < 512M.
+truncate -s 511M "$BUDGET_DIR/filler.rdump"
+rdump_run_oom 512M
+if rdump_have_dump; then
+    echo "::error::rdump.oom_dump_max_total ignored the incoming dump's size"
+    exit 1
+fi
+echo "oom-budget (incoming tips over) OK"
+rm -f "$BUDGET_DIR"/oom-*.rdump
+
+# Comfortably under the budget -> written.
 rm -f "$BUDGET_DIR/filler.rdump"
-php -d extension="$SO" -d memory_limit=8M \
-    -d rdump.oom_dump="$BUDGET_DIR/oom-%p.rdump" \
-    -d rdump.oom_dump_max_total=1M \
-    -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
-if ! ls "$BUDGET_DIR"/oom-*.rdump >/dev/null 2>&1; then
-    echo "::error::rdump.oom_dump_max_total suppressed a dump while under budget"
+truncate -s 100M "$BUDGET_DIR/filler.rdump"
+rdump_run_oom 512M
+if ! rdump_have_dump; then
+    echo "::error::rdump.oom_dump_max_total suppressed a dump well under the limit"
     exit 1
 fi
 echo "oom-budget (under) OK"
