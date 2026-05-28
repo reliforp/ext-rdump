@@ -99,6 +99,8 @@ php.ini:
 extension=rdump.so
 rdump.oom_dump=/var/log/php-oom-%p.rdump   ; empty = disabled
 ;rdump.oom_dump_full=1                     ; also embed read-only segments
+;rdump.oom_dump_max=1                      ; max auto-dumps per worker (0 = unlimited)
+;rdump.oom_dump_min_interval=0             ; min seconds between auto-dumps (0 = off)
 ```
 
 The path may contain `%p` (PID) and `%t` (Unix time), expanded when the dump
@@ -112,6 +114,25 @@ On an `Allowed memory size ... exhausted` fatal, the dump is written straight
 from the engine's error callback (`zend_error_cb`) — on the intact stack,
 before any unwind, and off the `memory_limit` heap (libc `malloc`) — so it
 captures even the OOMs a shutdown handler cannot.
+
+#### Don't let it run away
+
+A worker pinned at `memory_limit` tends to OOM on *every* request, so an
+unguarded auto-dump would write a fresh (often 100 MB+) file each time and bury
+the disk. By default the auto-dump therefore fires **at most once per worker
+process** (`rdump.oom_dump_max=1`); the counter is per worker and spans requests,
+so restarting the worker re-arms it. Raise the cap if you want more, and/or set a
+minimum spacing — both gates apply together:
+
+```ini
+rdump.oom_dump_max=5            ; up to 5 dumps over the worker's lifetime (0 = unlimited)
+rdump.oom_dump_min_interval=60  ; ...and at least 60s apart
+```
+
+A dump attempt counts toward the cap whether it succeeds or not, so a bad path or
+a full disk can't retry forever either. This guard applies only to the automatic
+OOM dump — explicit `rdump_dump()` calls are never throttled. (Combine the cap
+with a `%p` path so each worker still writes a distinct file.)
 
 You can also toggle it at runtime — handy for a per-request/per-pid filename,
 or when you cannot edit php.ini:

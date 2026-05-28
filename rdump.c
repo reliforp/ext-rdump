@@ -584,18 +584,38 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
             && msg != NULL
             && strncmp(msg, RDUMP_OOM_PREFIX, sizeof(RDUMP_OOM_PREFIX) - 1) == 0
         ) {
-            char expanded[4096];
-            const char *out_path = path;
-            if (strchr(path, '%') != NULL
-                && rdump_expand_path(path, expanded, sizeof(expanded)) == 0
-            ) {
-                out_path = expanded;
+            /* Runaway guard: a worker pinned at memory_limit OOMs on nearly
+             * every request, so cap the auto-dump over the worker's lifetime
+             * by count and/or by minimum spacing. Both gates apply together;
+             * the default max of 1 keeps it to a single dump per worker. */
+            zend_long max = RDUMP_G(oom_dump_max);
+            zend_long interval = RDUMP_G(oom_dump_min_interval);
+            zend_long now = (zend_long)time(NULL);
+            int capped = (max > 0 && RDUMP_G(oom_dump_count) >= max);
+            int too_soon = (interval > 0
+                && RDUMP_G(oom_dump_last_ts) != 0
+                && now - RDUMP_G(oom_dump_last_ts) < interval);
+
+            if (!capped && !too_soon) {
+                char expanded[4096];
+                const char *out_path = path;
+                if (strchr(path, '%') != NULL
+                    && rdump_expand_path(path, expanded, sizeof(expanded)) == 0
+                ) {
+                    out_path = expanded;
+                }
+                /* Count the attempt (success or failure) and stamp the time
+                 * before writing, so a broken path or full disk cannot retry
+                 * without bound either. */
+                RDUMP_G(oom_dump_count)++;
+                RDUMP_G(oom_dump_last_ts) = now;
+
+                char *err = NULL;
+                RDUMP_G(in_oom_dump) = 1;
+                /* Best-effort: this is the death path, so swallow any failure. */
+                (void)rdump_write_file(out_path, full, &err);
+                RDUMP_G(in_oom_dump) = 0;
             }
-            char *err = NULL;
-            RDUMP_G(in_oom_dump) = 1;
-            /* Best-effort: this is the death path, so swallow any failure. */
-            (void)rdump_write_file(out_path, full, &err);
-            RDUMP_G(in_oom_dump) = 0;
         }
     }
     rdump_original_error_cb(RDUMP_ERROR_CB_PASSTHRU);
@@ -666,6 +686,14 @@ PHP_INI_BEGIN()
         "rdump.oom_dump_full", "0", PHP_INI_SYSTEM, OnUpdateBool,
         oom_dump_full, zend_rdump_globals, rdump_globals
     )
+    STD_PHP_INI_ENTRY(
+        "rdump.oom_dump_max", "1", PHP_INI_SYSTEM, OnUpdateLong,
+        oom_dump_max, zend_rdump_globals, rdump_globals
+    )
+    STD_PHP_INI_ENTRY(
+        "rdump.oom_dump_min_interval", "0", PHP_INI_SYSTEM, OnUpdateLong,
+        oom_dump_min_interval, zend_rdump_globals, rdump_globals
+    )
 PHP_INI_END()
 
 static const zend_function_entry rdump_functions[] = {
@@ -681,6 +709,10 @@ static PHP_GINIT_FUNCTION(rdump)
 #endif
     rdump_globals->oom_dump = NULL;
     rdump_globals->oom_dump_full = 0;
+    rdump_globals->oom_dump_max = 1;
+    rdump_globals->oom_dump_min_interval = 0;
+    rdump_globals->oom_dump_count = 0;
+    rdump_globals->oom_dump_last_ts = 0;
     rdump_globals->oom_dump_runtime = NULL;
     rdump_globals->oom_dump_runtime_full = 0;
     rdump_globals->oom_dump_runtime_set = 0;
