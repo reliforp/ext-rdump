@@ -47,3 +47,22 @@ jobs:
             -v "$PWD":/ext -w /ext \
             "php:${{ matrix.php }}-${{ matrix.ts }}" \
             sh ci/build-and-test.sh
+
+  leak-check:
+    name: Leak check PHP 8.4 ${{ matrix.ts == 'zts' && 'ZTS' || 'NTS' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ts:
+          - 'cli'   # NTS
+          - 'zts'   # ZTS
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Valgrind leak check (php:8.4-${{ matrix.ts }})
+        run: |
+          docker run --rm \
+            -v "$PWD":/ext -w /ext \
+            "php:8.4-${{ matrix.ts }}" \
+            sh ci/leak-check.sh
