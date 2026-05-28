@@ -48,6 +48,27 @@ jobs:
             "php:${{ matrix.php }}-${{ matrix.ts }}" \
             sh ci/build-and-test.sh
 
+  reli-integration:
+    name: reli reads an ext-rdump dump (PHP 8.4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: ext
+
+      - uses: actions/checkout@v5
+        with:
+          repository: reliforp/reli-prof
+          path: reli
+
+      - name: Dump with ext-rdump, then read it with reli
+        run: |
+          docker run --rm \
+            -e CI=1 \
+            -v "$PWD/ext":/ext -v "$PWD/reli":/reli -w /ext \
+            php:8.4-cli \
+            sh ci/reli-integration.sh
+
   leak-check:
     name: Leak check PHP 8.4 ${{ matrix.ts == 'zts' && 'ZTS' || 'NTS' }}
     runs-on: ubuntu-latest
