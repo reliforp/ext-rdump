@@ -59,13 +59,11 @@ The dump reflects the process exactly as it is at the moment of the call —
 including the live VM call stack — so trigger it where it matters:
 
 ```php
-// On memory_limit exhaustion. Pre-allocate a reserve so there is headroom
-// left to write the dump once the OOM fires, then release it in the
-// shutdown handler and dump only if the fatal was a memory-limit error.
-// (Same idea as reli-prof-sidecar-client's MemoryLimitHandler.)
-$reserve = str_repeat("\0", 256 * 1024);
-register_shutdown_function(function () use (&$reserve) {
-    $reserve = null; // free headroom for the dump
+// On memory_limit exhaustion. rdump_dump() does its work with libc malloc,
+// not PHP's memory_limit-governed heap, so it still runs right after an OOM
+// fatal -- no emergency reserve needed. Keep the path a constant so the
+// handler itself allocates nothing on the PHP heap.
+register_shutdown_function(function () {
     $e = error_get_last();
     if ($e !== null && strpos($e['message'], 'Allowed memory size') !== false) {
         rdump_dump('/tmp/oom.rdump');
@@ -80,6 +78,12 @@ if (memory_get_usage() > 256 * 1024 * 1024) {
 // Or on demand from a signal handler (kill -USR2 <pid>):
 pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
 ```
+
+> The shutdown dump above needs no pre-allocated reserve (unlike
+> reli-prof-sidecar-client's `MemoryLimitHandler`, which does PHP-level work
+> charged against `memory_limit`). If your handler does other PHP-level work
+> after the OOM, build the dump path as a constant and, if needed,
+> `ini_set('memory_limit', '-1')` at the top of the handler.
 
 Pass `$full = true` for a self-contained dump (also embeds read-only code
 segments) when you will analyse it on a host that lacks the original binaries.
