@@ -89,3 +89,19 @@ unlink($f);
 echo "smoke OK (zts=" . (PHP_ZTS ? "yes" : "no") . ")\n";
 PHP
 php -d extension="$SO" /tmp/rdump-smoke.php
+
+# --- memory_limit auto-dump hook -------------------------------------
+# Exercises the version-specific zend_error_cb signature at runtime and
+# proves the C-level OOM hook fires where a shutdown handler cannot:
+# pure recursion exhausts memory_limit via VM-stack growth, so even the
+# shutdown closure's own frame can't be pushed.
+OOM_DUMP=/tmp/rdump-oom.rdump
+rm -f "$OOM_DUMP"
+php -d extension="$SO" -d memory_limit=2M -d rdump.oom_dump="$OOM_DUMP" \
+    -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
+if [ -s "$OOM_DUMP" ] && [ "$(head -c 5 "$OOM_DUMP")" = "RDUMP" ]; then
+    echo "oom-hook OK"
+else
+    echo "::error::rdump.oom_dump hook did not produce a dump"
+    exit 1
+fi

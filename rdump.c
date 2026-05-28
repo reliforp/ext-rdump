@@ -29,9 +29,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+
+ZEND_DECLARE_MODULE_GLOBALS(rdump)
 
 /* ------------------------------------------------------------------ */
 /* Little-endian writers (match PHP pack() 'V'/'P'/'q' on LE targets). */
@@ -446,13 +449,122 @@ PHP_FUNCTION(rdump_dump)
 }
 
 /* ------------------------------------------------------------------ */
+/* Auto-dump on memory_limit exhaustion (opt-in via rdump.oom_dump).   */
+/*                                                                     */
+/* A register_shutdown_function() cannot capture every OOM: when the   */
+/* fatal is itself a VM-stack page allocation (or the stack sits right */
+/* at a page boundary), pushing the shutdown closure's own call frame  */
+/* needs another emalloc that fails too, so the handler never runs.    */
+/* Hooking zend_error_cb catches the fatal in C, on the intact stack,  */
+/* before any bailout/unwind -- and rdump_dump()'s libc-malloc path    */
+/* runs regardless of the exhausted memory_limit. (Same technique as   */
+/* php-memory-profiler's dump-on-limit.)                               */
+/* ------------------------------------------------------------------ */
+
+#define RDUMP_OOM_PREFIX "Allowed memory size of"
+
+/* zend_error_cb's signature changed across versions; mirror it exactly
+ * so the function-pointer assignment is type-compatible, and forward all
+ * arguments unchanged to the previous handler. */
+#if PHP_VERSION_ID < 80000
+# if PHP_VERSION_ID < 70200
+#  define RDUMP_ERROR_CB_PARAMS \
+    int type, const char *error_filename, const unsigned int error_lineno, \
+    const char *format, va_list args
+# else
+#  define RDUMP_ERROR_CB_PARAMS \
+    int type, const char *error_filename, const uint32_t error_lineno, \
+    const char *format, va_list args
+# endif
+# define RDUMP_ERROR_CB_PASSTHRU type, error_filename, error_lineno, format, args
+# define RDUMP_ERROR_MSG (format)
+#elif PHP_VERSION_ID < 80100
+# define RDUMP_ERROR_CB_PARAMS \
+    int type, const char *error_filename, const uint32_t error_lineno, \
+    zend_string *message
+# define RDUMP_ERROR_CB_PASSTHRU type, error_filename, error_lineno, message
+# define RDUMP_ERROR_MSG (ZSTR_VAL(message))
+#else
+# define RDUMP_ERROR_CB_PARAMS \
+    int type, zend_string *error_filename, const uint32_t error_lineno, \
+    zend_string *message
+# define RDUMP_ERROR_CB_PASSTHRU type, error_filename, error_lineno, message
+# define RDUMP_ERROR_MSG (ZSTR_VAL(message))
+#endif
+
+static void (*rdump_original_error_cb)(RDUMP_ERROR_CB_PARAMS);
+
+static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
+{
+    const char *msg = RDUMP_ERROR_MSG;
+    if (type == E_ERROR
+        && !RDUMP_G(in_oom_dump)
+        && RDUMP_G(oom_dump) != NULL
+        && RDUMP_G(oom_dump)[0] != '\0'
+        && msg != NULL
+        && strncmp(msg, RDUMP_OOM_PREFIX, sizeof(RDUMP_OOM_PREFIX) - 1) == 0
+    ) {
+        char *err = NULL;
+        RDUMP_G(in_oom_dump) = 1;
+        /* Best-effort: this is the death path, so swallow any failure. */
+        (void)rdump_write_file(
+            RDUMP_G(oom_dump),
+            RDUMP_G(oom_dump_full) ? 1 : 0,
+            &err
+        );
+        RDUMP_G(in_oom_dump) = 0;
+    }
+    rdump_original_error_cb(RDUMP_ERROR_CB_PASSTHRU);
+}
+
+/* ------------------------------------------------------------------ */
 /* Module plumbing.                                                   */
 /* ------------------------------------------------------------------ */
+
+PHP_INI_BEGIN()
+    STD_PHP_INI_ENTRY(
+        "rdump.oom_dump", "", PHP_INI_SYSTEM, OnUpdateString,
+        oom_dump, zend_rdump_globals, rdump_globals
+    )
+    STD_PHP_INI_BOOLEAN(
+        "rdump.oom_dump_full", "0", PHP_INI_SYSTEM, OnUpdateBool,
+        oom_dump_full, zend_rdump_globals, rdump_globals
+    )
+PHP_INI_END()
 
 static const zend_function_entry rdump_functions[] = {
     PHP_FE(rdump_dump, arginfo_rdump_dump)
     PHP_FE_END
 };
+
+static PHP_GINIT_FUNCTION(rdump)
+{
+#if defined(COMPILE_DL_RDUMP) && defined(ZTS)
+    ZEND_TSRMLS_CACHE_UPDATE();
+#endif
+    rdump_globals->oom_dump = NULL;
+    rdump_globals->oom_dump_full = 0;
+    rdump_globals->in_oom_dump = 0;
+}
+
+PHP_MINIT_FUNCTION(rdump)
+{
+    REGISTER_INI_ENTRIES();
+    rdump_original_error_cb = zend_error_cb;
+    zend_error_cb = rdump_zend_error_cb;
+    return SUCCESS;
+}
+
+PHP_MSHUTDOWN_FUNCTION(rdump)
+{
+    /* Only un-hook if nothing else chained on top of us, to avoid
+     * cutting another extension's handler out of the chain. */
+    if (zend_error_cb == rdump_zend_error_cb) {
+        zend_error_cb = rdump_original_error_cb;
+    }
+    UNREGISTER_INI_ENTRIES();
+    return SUCCESS;
+}
 
 PHP_MINFO_FUNCTION(rdump)
 {
@@ -465,20 +577,27 @@ PHP_MINFO_FUNCTION(rdump)
     php_info_print_table_row(2, "extension version", PHP_RDUMP_VERSION);
     php_info_print_table_row(2, "RDUMP format version", "3");
     php_info_print_table_row(2, "target php version tag", php_version);
+    php_info_print_table_row(2, "memory_limit auto-dump", "available (zend_error_cb)");
     php_info_print_table_end();
+
+    DISPLAY_INI_ENTRIES();
 }
 
 zend_module_entry rdump_module_entry = {
     STANDARD_MODULE_HEADER,
     "rdump",
     rdump_functions,
-    NULL,           /* MINIT */
-    NULL,           /* MSHUTDOWN */
+    PHP_MINIT(rdump),
+    PHP_MSHUTDOWN(rdump),
     NULL,           /* RINIT */
     NULL,           /* RSHUTDOWN */
     PHP_MINFO(rdump),
     PHP_RDUMP_VERSION,
-    STANDARD_MODULE_PROPERTIES
+    PHP_MODULE_GLOBALS(rdump),
+    PHP_GINIT(rdump),
+    NULL,           /* GSHUTDOWN */
+    NULL,           /* post deactivate */
+    STANDARD_MODULE_PROPERTIES_EX
 };
 
 #ifdef COMPILE_DL_RDUMP

@@ -21,6 +21,16 @@ extern zend_module_entry rdump_module_entry;
 /* RDUMP dump-file format version we emit (must match reli's reader range). */
 #define RDUMP_FORMAT_VERSION 3
 
+/* Per-(thread-)module state, holding the INI-configured auto-dump settings
+ * and a re-entrancy guard for the zend_error_cb OOM hook. */
+ZEND_BEGIN_MODULE_GLOBALS(rdump)
+    char *oom_dump;          /* rdump.oom_dump: path, or "" to disable */
+    zend_bool oom_dump_full; /* rdump.oom_dump_full */
+    zend_bool in_oom_dump;   /* guard against re-entering the dump */
+ZEND_END_MODULE_GLOBALS(rdump)
+
+#define RDUMP_G(v) ZEND_MODULE_GLOBALS_ACCESSOR(rdump, v)
+
 #if defined(ZTS) && defined(COMPILE_DL_RDUMP)
 ZEND_TSRMLS_CACHE_EXTERN()
 #endif

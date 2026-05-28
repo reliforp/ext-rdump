@@ -87,6 +87,25 @@ pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
 Pass `$full = true` for a self-contained dump (also embeds read-only code
 segments) when you will analyse it on a host that lacks the original binaries.
 
+### Capturing the moment of `memory_limit` death
+
+A `register_shutdown_function` misses the worst OOMs: when the fatal is itself
+a VM-stack allocation (or the stack sits at a page boundary), pushing the
+handler's own call frame needs another allocation that also fails, so the
+handler never runs. To catch those, let the extension hook the fatal in C, via
+php.ini:
+
+```ini
+extension=rdump.so
+rdump.oom_dump=/var/log/php-oom.rdump   ; empty = disabled
+;rdump.oom_dump_full=1                  ; also embed read-only segments
+```
+
+On an `Allowed memory size ... exhausted` fatal, the dump is written straight
+from the engine's error callback (`zend_error_cb`) — on the intact stack,
+before any unwind, and off the `memory_limit` heap (libc `malloc`) — so it
+captures even the OOMs a shutdown handler cannot.
+
 ## Analyse with reli
 
 ```bash
