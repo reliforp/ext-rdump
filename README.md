@@ -59,10 +59,11 @@ The dump reflects the process exactly as it is at the moment of the call —
 including the live VM call stack — so trigger it where it matters:
 
 ```php
-// On memory_limit exhaustion. rdump_dump() does its work with libc malloc,
-// not PHP's memory_limit-governed heap, so it still runs right after an OOM
-// fatal -- no emergency reserve needed. Keep the path a constant so the
-// handler itself allocates nothing on the PHP heap.
+// On memory_limit exhaustion. rdump_dump() builds the dump with libc malloc
+// (not charged to memory_limit). Calling it only pushes a VM-stack frame,
+// which reuses the VM stack's current ~256 KB page, so it normally runs from
+// a shutdown handler with no reserve (tested at a 2M limit, OOM ~186 frames
+// deep).
 register_shutdown_function(function () {
     $e = error_get_last();
     if ($e !== null && strpos($e['message'], 'Allowed memory size') !== false) {
@@ -79,11 +80,17 @@ if (memory_get_usage() > 256 * 1024 * 1024) {
 pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
 ```
 
-> The shutdown dump above needs no pre-allocated reserve (unlike
-> reli-prof-sidecar-client's `MemoryLimitHandler`, which does PHP-level work
-> charged against `memory_limit`). If your handler does other PHP-level work
-> after the OOM, build the dump path as a constant and, if needed,
-> `ini_set('memory_limit', '-1')` at the top of the handler.
+> Why no reserve is usually needed: `rdump_dump()` allocates with libc
+> `malloc`, not the `memory_limit`-governed Zend heap. The only Zend-heap cost
+> is the VM-stack frame for the call. The VM stack grows one ~256 KB page at a
+> time and a bailout leaves its position untouched (it only cuts the call
+> chain), so the handler and the dump call reuse the current page without an
+> emalloc — unless the stack sits right at a page boundary, when the call needs
+> a fresh ~256 KB page (an emalloc that can fail at the limit). For a hard
+> guarantee, pre-allocate a ~256 KB reserve and free it at the top of the
+> handler (`$reserve = null;` is a plain assignment, no new frame), so the
+> headroom is freed before the dump call — the same reason
+> reli-prof-sidecar-client's `MemoryLimitHandler` keeps one.
 
 Pass `$full = true` for a self-contained dump (also embeds read-only code
 segments) when you will analyse it on a host that lacks the original binaries.
