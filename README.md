@@ -20,8 +20,7 @@ Feed that file to reli and you can:
   memory bottlenecks**.
 
 `reli` can do all this by attaching from outside, but that needs `ptrace`.
-`ext-rdump` dumps from *inside* the process instead — no ptrace, nothing extra on
-the target, and often easier to ship to production.
+`ext-rdump` dumps from *inside* the process instead, without needing ptrace.
 
 ## Requirements
 
