@@ -13,7 +13,7 @@ http://pear.php.net/dtd/package-2.0.xsd">
  <description>
 Writes a snapshot of the current PHP process's own memory to a file, which
 reli (reliforp/reli-prof) analyses offline to inspect the call stack and
-per-object memory and to find leaks, reference cycles and bottlenecks.
+per-object memory and to find leaks, reference cycles and memory bottlenecks.
 Linux only.
  </description>
  <lead>
