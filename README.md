@@ -106,6 +106,19 @@ from the engine's error callback (`zend_error_cb`) — on the intact stack,
 before any unwind, and off the `memory_limit` heap (libc `malloc`) — so it
 captures even the OOMs a shutdown handler cannot.
 
+You can also toggle it at runtime — handy for a per-request/per-pid filename,
+or when you cannot edit php.ini:
+
+```php
+rdump_set_oom_dump("/var/log/oom-" . getmypid() . ".rdump");
+// rdump_set_oom_dump("/var/log/oom.rdump", true); // full dump
+// rdump_set_oom_dump("");   // force off for this request, even if the INI set a path
+// rdump_set_oom_dump(null); // clear the override, fall back to rdump.oom_dump
+```
+
+The runtime setting applies to the current request and takes precedence over
+the `rdump.oom_dump` default.
+
 ## Analyse with reli
 
 ```bash
@@ -129,6 +142,14 @@ point reli at a copy of the target's filesystem with `--dependency-root=/path`.
   on a busy ZTS process other threads may change memory while it is written.
 - The output is byte-compatible with reli's RDUMP format (the same file
   `reli inspector:memory:dump` produces).
+- **No steady-state overhead.** The extension installs no executor or allocator
+  hooks, so normal execution runs at full speed. The only always-on hook is on
+  `zend_error_cb` (the error path), where it adds a couple of comparisons and
+  one chained call — only when an error is actually emitted. Cost is incurred
+  only when you call `rdump_dump()` or an OOM dump fires; safe to keep resident.
+- Plays nice with other `zend_error_cb` users (e.g. php-memory-profiler): the
+  hook always chains to the previous handler, so every extension still fires and
+  writes its own dump on OOM.
 
 ## License
 

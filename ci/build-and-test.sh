@@ -105,3 +105,17 @@ else
     echo "::error::rdump.oom_dump hook did not produce a dump"
     exit 1
 fi
+
+# Same, but enabled at runtime via rdump_set_oom_dump() (exercises the
+# function path on every version).
+OOM_DUMP_RT=/tmp/rdump-oom-rt.rdump
+rm -f "$OOM_DUMP_RT"
+php -d extension="$SO" -d memory_limit=2M \
+    -r 'rdump_set_oom_dump("'"$OOM_DUMP_RT"'"); function r(){ r(); } r();' \
+    >/dev/null 2>&1 || true
+if [ -s "$OOM_DUMP_RT" ] && [ "$(head -c 5 "$OOM_DUMP_RT")" = "RDUMP" ]; then
+    echo "oom-hook (runtime toggle) OK"
+else
+    echo "::error::rdump_set_oom_dump() did not produce a dump"
+    exit 1
+fi

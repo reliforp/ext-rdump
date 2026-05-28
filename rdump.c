@@ -494,27 +494,85 @@ PHP_FUNCTION(rdump_dump)
 
 static void (*rdump_original_error_cb)(RDUMP_ERROR_CB_PARAMS);
 
+/* Release any runtime override set via rdump_set_oom_dump(). */
+static void rdump_clear_runtime_oom_dump(void)
+{
+    if (RDUMP_G(oom_dump_runtime) != NULL) {
+        free(RDUMP_G(oom_dump_runtime));
+        RDUMP_G(oom_dump_runtime) = NULL;
+    }
+    RDUMP_G(oom_dump_runtime_set) = 0;
+    RDUMP_G(oom_dump_runtime_full) = 0;
+}
+
 static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
 {
     const char *msg = RDUMP_ERROR_MSG;
+
+    /* Runtime override (rdump_set_oom_dump) wins over the INI default;
+     * an override set to "" force-disables even when the INI has a path. */
+    const char *path;
+    int full;
+    if (RDUMP_G(oom_dump_runtime_set)) {
+        path = RDUMP_G(oom_dump_runtime);
+        full = RDUMP_G(oom_dump_runtime_full) ? 1 : 0;
+    } else {
+        path = RDUMP_G(oom_dump);
+        full = RDUMP_G(oom_dump_full) ? 1 : 0;
+    }
+
     if (type == E_ERROR
         && !RDUMP_G(in_oom_dump)
-        && RDUMP_G(oom_dump) != NULL
-        && RDUMP_G(oom_dump)[0] != '\0'
+        && path != NULL
+        && path[0] != '\0'
         && msg != NULL
         && strncmp(msg, RDUMP_OOM_PREFIX, sizeof(RDUMP_OOM_PREFIX) - 1) == 0
     ) {
         char *err = NULL;
         RDUMP_G(in_oom_dump) = 1;
         /* Best-effort: this is the death path, so swallow any failure. */
-        (void)rdump_write_file(
-            RDUMP_G(oom_dump),
-            RDUMP_G(oom_dump_full) ? 1 : 0,
-            &err
-        );
+        (void)rdump_write_file(path, full, &err);
         RDUMP_G(in_oom_dump) = 0;
     }
     rdump_original_error_cb(RDUMP_ERROR_CB_PASSTHRU);
+}
+
+/* ------------------------------------------------------------------ */
+/* PHP function: void rdump_set_oom_dump(?string $path, bool $full=false)
+ *
+ * Runtime toggle for the OOM auto-dump, overriding the INI default for
+ * the rest of the current request:
+ *   - non-empty path -> enable, writing to that path (so callers can use
+ *     a per-request/per-pid filename the static INI cannot express);
+ *   - ""             -> force-disable even if rdump.oom_dump is set;
+ *   - null           -> clear the override and fall back to the INI.
+ */
+/* ------------------------------------------------------------------ */
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_rdump_set_oom_dump, 0, 0, 1)
+    ZEND_ARG_INFO(0, path)
+    ZEND_ARG_INFO(0, full)
+ZEND_END_ARG_INFO()
+
+PHP_FUNCTION(rdump_set_oom_dump)
+{
+    char *path = NULL;
+    size_t path_len = 0;
+    zend_bool full = 0;
+
+    /* "p!" validates the path (rejecting NUL bytes) and allows null. */
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "p!|b",
+            &path, &path_len, &full) == FAILURE) {
+        return;
+    }
+
+    rdump_clear_runtime_oom_dump();
+
+    if (path != NULL) {
+        RDUMP_G(oom_dump_runtime) = strdup(path);
+        RDUMP_G(oom_dump_runtime_set) = 1;
+        RDUMP_G(oom_dump_runtime_full) = full ? 1 : 0;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -534,6 +592,7 @@ PHP_INI_END()
 
 static const zend_function_entry rdump_functions[] = {
     PHP_FE(rdump_dump, arginfo_rdump_dump)
+    PHP_FE(rdump_set_oom_dump, arginfo_rdump_set_oom_dump)
     PHP_FE_END
 };
 
@@ -544,7 +603,17 @@ static PHP_GINIT_FUNCTION(rdump)
 #endif
     rdump_globals->oom_dump = NULL;
     rdump_globals->oom_dump_full = 0;
+    rdump_globals->oom_dump_runtime = NULL;
+    rdump_globals->oom_dump_runtime_full = 0;
+    rdump_globals->oom_dump_runtime_set = 0;
     rdump_globals->in_oom_dump = 0;
+}
+
+PHP_RSHUTDOWN_FUNCTION(rdump)
+{
+    /* A runtime override lasts only for the request that set it. */
+    rdump_clear_runtime_oom_dump();
+    return SUCCESS;
 }
 
 PHP_MINIT_FUNCTION(rdump)
@@ -590,7 +659,7 @@ zend_module_entry rdump_module_entry = {
     PHP_MINIT(rdump),
     PHP_MSHUTDOWN(rdump),
     NULL,           /* RINIT */
-    NULL,           /* RSHUTDOWN */
+    PHP_RSHUTDOWN(rdump),
     PHP_MINFO(rdump),
     PHP_RDUMP_VERSION,
     PHP_MODULE_GLOBALS(rdump),

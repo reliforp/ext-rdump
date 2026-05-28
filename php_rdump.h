@@ -24,8 +24,14 @@ extern zend_module_entry rdump_module_entry;
 /* Per-(thread-)module state, holding the INI-configured auto-dump settings
  * and a re-entrancy guard for the zend_error_cb OOM hook. */
 ZEND_BEGIN_MODULE_GLOBALS(rdump)
-    char *oom_dump;          /* rdump.oom_dump: path, or "" to disable */
-    zend_bool oom_dump_full; /* rdump.oom_dump_full */
+    char *oom_dump;          /* rdump.oom_dump (INI): path, or "" to disable */
+    zend_bool oom_dump_full; /* rdump.oom_dump_full (INI) */
+    /* Runtime override set via rdump_set_oom_dump(). Owned by us (libc
+     * strdup/free), reset each request. Takes precedence over the INI
+     * default when oom_dump_runtime_set is true ("" => force-disabled). */
+    char *oom_dump_runtime;
+    zend_bool oom_dump_runtime_full;
+    zend_bool oom_dump_runtime_set;
     zend_bool in_oom_dump;   /* guard against re-entering the dump */
 ZEND_END_MODULE_GLOBALS(rdump)
 
