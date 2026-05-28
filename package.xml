@@ -12,7 +12,7 @@ http://pear.php.net/dtd/package-2.0.xsd">
  <summary>Capture a PHP process's own memory for offline analysis with reli (finding leaks, reference cycles, memory bottlenecks, etc.).</summary>
  <description>
 ext-rdump writes a snapshot of the current PHP process's own memory to a
-file, in the RDUMP format used by reli (reliforp/reli-prof). The dump is
+file, in the RDUMP format used by reli (reliforp/reli-prof). The dump can be
 analysed offline with reli to inspect the call stack and per-object memory
 usage and to find memory leaks, reference cycles and bottlenecks. The
 snapshot is taken from inside the process, so no ptrace is required.
