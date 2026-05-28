@@ -33,6 +33,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <time.h>
+#include <sys/stat.h>
 
 ZEND_DECLARE_MODULE_GLOBALS(rdump)
 
@@ -347,8 +349,23 @@ static int rdump_write_file(const char *path, int full, char **err)
     uint64_t bg_address = rdump_bg_address();
     int64_t rss = rdump_rss_bytes();
 
-    FILE *fp = fopen(path, "wb");
+    /* A dump is a verbatim copy of process memory -- secrets, keys, request
+     * bodies and all -- so it must never be born group/world-readable.
+     * O_CREAT's 0600 only applies when we create the file, so fchmod() also
+     * tightens a pre-existing one. O_NOFOLLOW refuses to follow a symlink
+     * planted at the path; O_CLOEXEC keeps the fd out of any child. */
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        free(entries);
+        free(maps_buf);
+        *err = "failed to open output file for writing";
+        return -1;
+    }
+    (void)fchmod(fd, 0600);
+
+    FILE *fp = fdopen(fd, "wb");
     if (!fp) {
+        close(fd);
         free(entries);
         free(maps_buf);
         *err = "failed to open output file for writing";
@@ -494,6 +511,43 @@ PHP_FUNCTION(rdump_dump)
 
 static void (*rdump_original_error_cb)(RDUMP_ERROR_CB_PARAMS);
 
+/* Expand an OOM-dump path template into buf: %p -> pid, %t -> unix time,
+ * %% -> a literal '%'. Any other %x is emitted verbatim. This lets a single
+ * static rdump.oom_dump INI value give each FPM worker its own file instead
+ * of every worker racing to overwrite one path. Returns 0 on success, -1 if
+ * the result would not fit (caller then falls back to the literal template). */
+static int rdump_expand_path(const char *tmpl, char *buf, size_t buf_sz)
+{
+    size_t o = 0;
+    const char *p;
+    for (p = tmpl; *p != '\0'; p++) {
+        if (*p == '%' && p[1] != '\0') {
+            int n;
+            p++;
+            if (*p == 'p') {
+                n = snprintf(buf + o, buf_sz - o, "%lld", (long long)getpid());
+            } else if (*p == 't') {
+                n = snprintf(buf + o, buf_sz - o, "%lld", (long long)time(NULL));
+            } else if (*p == '%') {
+                n = snprintf(buf + o, buf_sz - o, "%%");
+            } else {
+                n = snprintf(buf + o, buf_sz - o, "%%%c", *p);
+            }
+            if (n < 0 || (size_t)n >= buf_sz - o) {
+                return -1;
+            }
+            o += (size_t)n;
+        } else {
+            if (o + 1 >= buf_sz) {
+                return -1;
+            }
+            buf[o++] = *p;
+        }
+    }
+    buf[o] = '\0';
+    return 0;
+}
+
 /* Release any runtime override set via rdump_set_oom_dump(). */
 static void rdump_clear_runtime_oom_dump(void)
 {
@@ -530,10 +584,17 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
             && msg != NULL
             && strncmp(msg, RDUMP_OOM_PREFIX, sizeof(RDUMP_OOM_PREFIX) - 1) == 0
         ) {
+            char expanded[4096];
+            const char *out_path = path;
+            if (strchr(path, '%') != NULL
+                && rdump_expand_path(path, expanded, sizeof(expanded)) == 0
+            ) {
+                out_path = expanded;
+            }
             char *err = NULL;
             RDUMP_G(in_oom_dump) = 1;
             /* Best-effort: this is the death path, so swallow any failure. */
-            (void)rdump_write_file(path, full, &err);
+            (void)rdump_write_file(out_path, full, &err);
             RDUMP_G(in_oom_dump) = 0;
         }
     }

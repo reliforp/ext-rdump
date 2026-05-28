@@ -97,9 +97,16 @@ php.ini:
 
 ```ini
 extension=rdump.so
-rdump.oom_dump=/var/log/php-oom.rdump   ; empty = disabled
-;rdump.oom_dump_full=1                  ; also embed read-only segments
+rdump.oom_dump=/var/log/php-oom-%p.rdump   ; empty = disabled
+;rdump.oom_dump_full=1                     ; also embed read-only segments
 ```
+
+The path may contain `%p` (PID) and `%t` (Unix time), expanded when the dump
+fires; `%%` is a literal `%`. Under PHP-FPM and other multi-worker setups give
+the template a `%p` so workers write distinct files instead of racing to
+overwrite one path. (This expansion applies to the OOM auto-dump path only —
+both the `rdump.oom_dump` INI value and a `rdump_set_oom_dump()` override — not
+to the literal `$path` you pass to `rdump_dump()`.)
 
 On an `Allowed memory size ... exhausted` fatal, the dump is written straight
 from the engine's error callback (`zend_error_cb`) — on the intact stack,
@@ -138,8 +145,17 @@ point reli at a copy of the target's filesystem with `--dependency-root=/path`.
 ## Notes
 
 - Linux only (the dump is built from `/proc/self/maps`).
-- The snapshot is taken synchronously in the calling thread — not stop-the-world;
-  on a busy ZTS process other threads may change memory while it is written.
+- The snapshot is taken synchronously in the calling thread — not stop-the-world.
+  On a busy ZTS process other threads may change memory while it is written, so
+  the dump can be internally inconsistent. In the worst case a region read for
+  the maps snapshot is `munmap`/`mprotect`-ed by another thread before its bytes
+  are copied, which can **crash** the process mid-dump. In practice this is rare,
+  and on the OOM death path it costs you nothing you were not already losing, but
+  do not wire `rdump_dump()` into a hot, otherwise-healthy request path expecting
+  it to be perfectly safe under heavy multi-threaded churn.
+- The dump file is created `0600` (owner-only) with `O_NOFOLLOW`, since it is a
+  verbatim copy of process memory — secrets and all. Keep it on storage only the
+  intended user can read, and delete it once analysed.
 - The output is byte-compatible with reli's RDUMP format (the same file
   `reli inspector:memory:dump` produces).
 - **No steady-state overhead.** The extension installs no executor or allocator
