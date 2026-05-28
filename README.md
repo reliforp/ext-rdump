@@ -54,9 +54,7 @@ bool rdump_dump(string $path, bool $full = false)
 
 Writes the dump to `$path`; returns `false` (with an `E_WARNING`) on failure.
 
-The dump reflects the process exactly as it is at the moment of the call —
-including the live VM call stack — so trigger it where it matters, for example
-on demand from a signal handler:
+Trigger it where it matters — for example, on demand from a signal handler:
 
 ```php
 // Dump on demand: kill -USR2 <pid>
