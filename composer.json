@@ -1,6 +1,6 @@
 {
     "name": "reliforp/ext-rdump",
-    "description": "Capture a PHP process's own memory (no ptrace); reli then analyses it to find leaks, reference cycles and memory bottlenecks.",
+    "description": "Capture a PHP process's own memory without ptrace, for offline analysis with reli (finding leaks, reference cycles, memory bottlenecks, etc.).",
     "type": "php-ext",
     "license": "MIT",
     "keywords": ["reli", "memory", "dump", "profiler", "debugging", "extension"],
