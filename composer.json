@@ -1,0 +1,23 @@
+{
+    "name": "reliforp/ext-rdump",
+    "description": "In-process self-memory dump for PHP in reli's RDUMP format, without ptrace.",
+    "type": "php-ext",
+    "license": "MIT",
+    "keywords": ["reli", "memory", "dump", "profiler", "debugging", "extension"],
+    "homepage": "https://github.com/reliforp/ext-rdump",
+    "authors": [
+        {
+            "name": "sji",
+            "email": "sji@sj-i.dev"
+        }
+    ],
+    "require": {
+        "php": ">=7.0"
+    },
+    "php-ext": {
+        "extension-name": "rdump",
+        "support-zts": true,
+        "support-nts": true,
+        "os-families": ["linux"]
+    }
+}
