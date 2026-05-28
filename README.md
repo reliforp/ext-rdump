@@ -21,7 +21,7 @@ Feed that file to reli and you can:
 
 `reli` can do all this by attaching from outside, but that needs `ptrace`.
 `ext-rdump` dumps from *inside* the process instead — no ptrace, nothing extra on
-the target — which is often easier to ship to production.
+the target, and often easier to ship to production.
 
 ## Requirements
 
