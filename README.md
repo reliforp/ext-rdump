@@ -56,33 +56,18 @@ bool rdump_dump(string $path, bool $full = false)
 Writes the dump to `$path`; returns `false` (with an `E_WARNING`) on failure.
 
 The dump reflects the process exactly as it is at the moment of the call —
-including the live VM call stack — so trigger it where it matters:
+including the live VM call stack — so trigger it where it matters, for example
+on demand from a signal handler:
 
 ```php
-// On memory_limit exhaustion. Free a few KB first so the handler's own
-// allocations (error_get_last() etc.) have headroom after the OOM;
-// rdump_dump() builds the dump with libc malloc, off the memory_limit heap.
-$reserve = str_repeat("\0", 4096);
-register_shutdown_function(function () use (&$reserve) {
-    $reserve = null;
-    $e = error_get_last();
-    if ($e !== null && strpos($e['message'], 'Allowed memory size') !== false) {
-        rdump_dump('/tmp/oom.rdump');
-    }
-});
-
-// Or proactively, before the limit is hit:
-if (memory_get_usage() > 256 * 1024 * 1024) {
-    rdump_dump('/tmp/highwater.rdump');
-}
-
-// Or on demand from a signal handler (kill -USR2 <pid>):
+// Dump on demand: kill -USR2 <pid>
 pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
 ```
 
-> The few-KB reserve just gives the handler's own post-OOM bookkeeping
-> (`error_get_last()` etc. — a few hundred bytes) room to run; rdump_dump()'s
-> own buffers are libc `malloc`, off the `memory_limit` heap.
+To capture the moment of `memory_limit` exhaustion, don't wire this into a
+shutdown function — let the extension hook the fatal in C instead (see
+[below](#capturing-the-moment-of-memory_limit-death)); it catches even the OOMs
+a shutdown handler cannot.
 
 Pass `$full = true` for a self-contained dump (also embeds read-only code
 segments) when you will analyse it on a host that lacks the original binaries.
@@ -174,8 +159,8 @@ never stale over a half-rewritten file. This gives the atomic-visibility guarant
 (it's a plain `open`/`close`). There is deliberately **no PHP completion
 callback**: the OOM dump runs inside the engine's error handler on a process that
 has just exhausted `memory_limit`, where re-entering PHP userland is unsafe. To
-react in-process instead, use `register_shutdown_function()` (see above) — that
-runs in a safe phase, after the dump is already on disk.
+react in-process instead, register a shutdown function that checks
+`error_get_last()` — it runs in a safe phase, after the dump is already on disk.
 
 You can also toggle it at runtime — handy for a per-request/per-pid filename,
 or when you cannot edit php.ini:
