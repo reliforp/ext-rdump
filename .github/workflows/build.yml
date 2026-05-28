@@ -38,7 +38,7 @@ jobs:
       # build happens inside the target container with the tree mounted.
       # This sidesteps node20-based actions failing on the old glibc of
       # the 7.0-7.4 images.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build and test (php:${{ matrix.php }}-${{ matrix.ts }})
         run: |
