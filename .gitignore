@@ -2,6 +2,7 @@
 *.lo
 *.la
 *.dep
+*~
 .libs/
 .deps/
 modules/
