@@ -611,6 +611,24 @@ static int rdump_expand_path(const char *tmpl, char *buf, size_t buf_sz)
     return 0;
 }
 
+/* Drop a "<dump_path>.done" marker once a dump is fully written and closed.
+ * A directory watcher can wait for this instead of the .rdump, so it never
+ * ships a half-written file -- the atomic-visibility benefit of a temp+rename
+ * without the rename, and safe to run on the OOM death path (libc only).
+ * Best-effort: a missing marker just means "no completion signal". */
+static void rdump_write_done_marker(const char *dump_path)
+{
+    char marker[4096];
+    if ((size_t)snprintf(marker, sizeof(marker), "%s.done", dump_path)
+            >= sizeof(marker)) {
+        return;
+    }
+    int fd = open(marker, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd >= 0) {
+        close(fd);
+    }
+}
+
 /* Release any runtime override set via rdump_set_oom_dump(). */
 static void rdump_clear_runtime_oom_dump(void)
 {
@@ -710,8 +728,13 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
                 char *err = NULL;
                 RDUMP_G(in_oom_dump) = 1;
                 /* Best-effort: this is the death path, so swallow any failure. */
-                (void)rdump_write_file(out_path, full, &err);
+                int wrote = rdump_write_file(out_path, full, &err);
                 RDUMP_G(in_oom_dump) = 0;
+
+                /* Signal completion only once the dump is fully on disk. */
+                if (wrote == 0 && RDUMP_G(oom_dump_marker)) {
+                    rdump_write_done_marker(out_path);
+                }
             }
         }
     }
@@ -803,6 +826,10 @@ PHP_INI_BEGIN()
         "rdump.oom_dump_max_total", "0", PHP_INI_SYSTEM, OnUpdateRdumpBytes,
         oom_dump_max_total, zend_rdump_globals, rdump_globals
     )
+    STD_PHP_INI_BOOLEAN(
+        "rdump.oom_dump_marker", "0", PHP_INI_SYSTEM, OnUpdateBool,
+        oom_dump_marker, zend_rdump_globals, rdump_globals
+    )
 PHP_INI_END()
 
 static const zend_function_entry rdump_functions[] = {
@@ -823,6 +850,7 @@ static PHP_GINIT_FUNCTION(rdump)
     rdump_globals->oom_dump_max_total = 0;
     rdump_globals->oom_dump_count = 0;
     rdump_globals->oom_dump_last_ts = 0;
+    rdump_globals->oom_dump_marker = 0;
     rdump_globals->oom_dump_runtime = NULL;
     rdump_globals->oom_dump_runtime_full = 0;
     rdump_globals->oom_dump_runtime_set = 0;

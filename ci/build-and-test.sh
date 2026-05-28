@@ -239,3 +239,20 @@ if ! rdump_have_dump; then
 fi
 echo "oom-budget (under) OK"
 rm -rf "$BUDGET_DIR"
+
+# --- OOM dump completion marker -------------------------------------
+# With rdump.oom_dump_marker=1 a "<path>.done" must appear once the dump is
+# fully written, so a directory watcher can wait for it instead of racing the
+# half-written .rdump.
+MARKER_DIR=/tmp/rdump-marker
+rm -rf "$MARKER_DIR"; mkdir -p "$MARKER_DIR"
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$MARKER_DIR/oom-%p.rdump" -d rdump.oom_dump_marker=1 \
+    -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
+if ls "$MARKER_DIR"/oom-*.rdump.done >/dev/null 2>&1; then
+    echo "oom-marker OK"
+else
+    echo "::error::rdump.oom_dump_marker did not write a .done marker"
+    exit 1
+fi
+rm -rf "$MARKER_DIR"

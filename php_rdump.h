@@ -37,6 +37,7 @@ ZEND_BEGIN_MODULE_GLOBALS(rdump)
                                       * so many workers can't fill the disk together. */
     zend_long oom_dump_count;        /* OOM dumps attempted so far this process */
     zend_long oom_dump_last_ts;      /* time() of the last OOM dump attempt, 0 = none */
+    zend_bool oom_dump_marker;       /* rdump.oom_dump_marker (INI): write <path>.done */
     /* Runtime override set via rdump_set_oom_dump(). Owned by us (libc
      * strdup/free), reset each request. Takes precedence over the INI
      * default when oom_dump_runtime_set is true ("" => force-disabled). */
