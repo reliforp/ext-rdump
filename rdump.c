@@ -611,6 +611,20 @@ static int rdump_expand_path(const char *tmpl, char *buf, size_t buf_sz)
     return 0;
 }
 
+/* Remove a stale "<dump_path>.done" before a dump is (re)written to the same
+ * path. Without this, a fixed-path dump would keep last run's marker present
+ * while the new dump is mid-write, telling a watcher the half-written file is
+ * already complete. Cleared before truncation, re-created only on success. */
+static void rdump_clear_done_marker(const char *dump_path)
+{
+    char marker[4096];
+    if ((size_t)snprintf(marker, sizeof(marker), "%s.done", dump_path)
+            >= sizeof(marker)) {
+        return;
+    }
+    unlink(marker);
+}
+
 /* Drop a "<dump_path>.done" marker once a dump is fully written and closed.
  * A directory watcher can wait for this instead of the .rdump, so it never
  * ships a half-written file -- the atomic-visibility benefit of a temp+rename
@@ -724,6 +738,13 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
                  * without bound either. */
                 RDUMP_G(oom_dump_count)++;
                 RDUMP_G(oom_dump_last_ts) = now;
+
+                /* Drop any prior completion marker before truncating the dump,
+                 * so a watcher never sees a stale .done over a half-rewritten
+                 * file when the same path is reused. */
+                if (RDUMP_G(oom_dump_marker)) {
+                    rdump_clear_done_marker(out_path);
+                }
 
                 char *err = NULL;
                 RDUMP_G(in_oom_dump) = 1;

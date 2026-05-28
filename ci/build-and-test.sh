@@ -243,16 +243,23 @@ rm -rf "$BUDGET_DIR"
 # --- OOM dump completion marker -------------------------------------
 # With rdump.oom_dump_marker=1 a "<path>.done" must appear once the dump is
 # fully written, so a directory watcher can wait for it instead of racing the
-# half-written .rdump.
+# half-written .rdump. A stale marker from a previous dump to the same path
+# must be cleared first: pre-plant a non-empty .done and require it to come
+# back empty (cleared, then re-created on completion), never left stale.
 MARKER_DIR=/tmp/rdump-marker
 rm -rf "$MARKER_DIR"; mkdir -p "$MARKER_DIR"
+MARKER_DUMP="$MARKER_DIR/fixed.rdump"
+printf STALE > "$MARKER_DUMP.done"
 php -d extension="$SO" -d memory_limit=8M \
-    -d rdump.oom_dump="$MARKER_DIR/oom-%p.rdump" -d rdump.oom_dump_marker=1 \
+    -d rdump.oom_dump="$MARKER_DUMP" -d rdump.oom_dump_marker=1 \
     -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
-if ls "$MARKER_DIR"/oom-*.rdump.done >/dev/null 2>&1; then
-    echo "oom-marker OK"
-else
+if [ ! -f "$MARKER_DUMP.done" ]; then
     echo "::error::rdump.oom_dump_marker did not write a .done marker"
     exit 1
 fi
+if [ -s "$MARKER_DUMP.done" ]; then
+    echo "::error::a stale .done marker survived a dump to the same path"
+    exit 1
+fi
+echo "oom-marker OK"
 rm -rf "$MARKER_DIR"

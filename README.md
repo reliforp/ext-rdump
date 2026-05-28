@@ -167,7 +167,9 @@ rdump.oom_dump_marker=1   ; after a complete dump, also create "<path>.done"
 
 The `<path>.done` file is created (empty, `0600`) only once the dump is fully
 written and closed — wait for `oom-1234.rdump.done`, then ship
-`oom-1234.rdump`. This gives the atomic-visibility guarantee a temp-file +
+`oom-1234.rdump`. When a dump reuses a path, the old marker is removed *before*
+the new dump is truncated and re-created only when it completes, so a `.done` is
+never stale over a half-rewritten file. This gives the atomic-visibility guarantee a temp-file +
 `rename` would, without the rename's downsides, and works on the OOM death path
 (it's a plain `open`/`close`). There is deliberately **no PHP completion
 callback**: the OOM dump runs inside the engine's error handler on a process that
