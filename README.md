@@ -133,11 +133,16 @@ effect rather than silently disabling the dump.
 
 Reading the dump is reli's job; its
 [memory-dump docs](https://github.com/reliforp/reli-prof/blob/HEAD/docs/memory/memory-dump.md)
-have the full story. The easiest way to run it is reli's Docker image: its
+have the full story. The easiest way to run it is reli's Docker image, with no
+local PHP 8.4 / FFI setup; the one-liner below installs a `reli` shell function
+backed by it (see reli's
 [getting-started guide](https://github.com/reliforp/reli-prof/blob/HEAD/docs/getting-started.md)
-sets up a `reli` command for you, with no local PHP 8.4 / FFI setup. Then:
+to persist it across shells):
 
 ```bash
+# one-time: install a `reli` command backed by the Docker image
+eval "$(docker run --rm --pull=always reliforp/reli-prof docker:print-wrapper)"
+
 # header / memory map / regions
 reli inspector:memory:dump:inspect /tmp/app.rdump
 
