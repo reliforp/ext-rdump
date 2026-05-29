@@ -97,7 +97,7 @@ request after request, so an unguarded auto-dump could write a fresh (often
 ```ini
 rdump.oom_dump_max=1            ; max dumps per worker process (default 1; 0 = unlimited)
 rdump.oom_dump_min_interval=0   ; min seconds between dumps (default 0 = off)
-rdump.oom_dump_max_total=0      ; skip once *.rdump in the dump dir would exceed this (K/M/G; 0 = off)
+rdump.oom_dump_max_total=0      ; skip once *.rdump in the dump dir would exceed this (K/M/G/T, e.g. 1.5G; 0 = off)
 ```
 
 `oom_dump_max` is a per-worker count (default 1 = one dump per worker).

@@ -327,12 +327,14 @@ static int64_t rdump_rss_bytes(void)
     return (int64_t)(resident * (unsigned long long)page);
 }
 
-/* Parse a byte quantity like "500", "16K", "256M", "2G" (binary multiples,
- * case-insensitive suffix) into bytes. Lenient: a leading integer with an
- * optional suffix, any trailing characters ignored (so "10foo" is 10); a value
- * that doesn't start with a non-negative number yields 0. An absurdly large
- * value (suffix overflow, or beyond zend_long on a 32-bit build) is clamped to
- * ZEND_LONG_MAX rather than wrapping to a bogus/negative size. */
+/* Parse a byte quantity like "500", "16K", "256M", "2G", "1.5G" (binary
+ * multiples, case-insensitive suffix) into bytes. Lenient: a leading decimal
+ * number with an optional suffix; trailing characters are ignored (so "10foo"
+ * is 10), and a value that isn't a positive number yields 0 (so "0"/""/"abc"
+ * mean "off"). A stray decimal point left by a locale mismatch is skipped when
+ * looking for the suffix, so "1.5G" can't collapse to a 1-byte budget. An
+ * absurdly large value (or one beyond zend_long on a 32-bit build) is clamped
+ * to ZEND_LONG_MAX rather than wrapping to a bogus/negative size. */
 static zend_long rdump_parse_bytes(const char *s)
 {
     if (s == NULL) {
@@ -342,26 +344,32 @@ static zend_long rdump_parse_bytes(const char *s)
         s++;
     }
     char *end = NULL;
-    long long v = strtoll(s, &end, 10);
-    if (end == s || v < 0) {
+    double v = strtod(s, &end);
+    if (end == s || !(v > 0.0)) {
         return 0;
     }
-    while (*end == ' ' || *end == '\t') {
-        end++;
+    /* Skip any leftover fractional/space chars, then read one suffix letter. */
+    const char *q = end;
+    while (*q == '.' || *q == ',' || *q == ' ' || *q == '\t'
+           || (*q >= '0' && *q <= '9')) {
+        q++;
     }
-    long long mult = 1;
-    switch (*end) {
-        case 'k': case 'K': mult = 1024LL; break;
-        case 'm': case 'M': mult = 1024LL * 1024; break;
-        case 'g': case 'G': mult = 1024LL * 1024 * 1024; break;
-        case 't': case 'T': mult = 1024LL * 1024 * 1024 * 1024; break;
+    double mult = 1.0;
+    switch (*q) {
+        case 'k': case 'K': mult = 1024.0; break;
+        case 'm': case 'M': mult = 1024.0 * 1024; break;
+        case 'g': case 'G': mult = 1024.0 * 1024 * 1024; break;
+        case 't': case 'T': mult = 1024.0 * 1024 * 1024 * 1024; break;
         default: break;
     }
-    if (v > LLONG_MAX / mult) {
+    double bytes = v * mult;
+    if (!(bytes > 0.0)) {
+        return 0;
+    }
+    if (bytes >= (double)ZEND_LONG_MAX) {
         return ZEND_LONG_MAX;
     }
-    v *= mult;
-    return v > (long long)ZEND_LONG_MAX ? ZEND_LONG_MAX : (zend_long)v;
+    return (zend_long)bytes;
 }
 
 /* Sum the sizes of every *.rdump file in dir, skipping except_base (the file
@@ -772,6 +780,9 @@ static void rdump_clear_done_marker(const char *dump_path)
  * A directory watcher can wait for this instead of the .rdump, so it never
  * ships a half-written file -- the atomic-visibility benefit of a temp+rename
  * without the rename, and safe to run on the OOM death path (libc only).
+ * The stale marker was unlinked before the dump, so create fresh with O_EXCL
+ * (same caution as the dump body): if anything already exists at the path,
+ * give up rather than truncate a regular file/hardlink or follow a symlink.
  * Best-effort: a missing marker just means "no completion signal". */
 static void rdump_write_done_marker(const char *dump_path)
 {
@@ -780,18 +791,10 @@ static void rdump_write_done_marker(const char *dump_path)
             >= sizeof(marker)) {
         return;
     }
-    /* O_NONBLOCK so a FIFO planted at the path can't hang us; the regular-file
-     * check then ignores any non-regular target. */
-    int fd = open(marker, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0600);
-    if (fd < 0) {
-        return;
-    }
-    struct stat st;
-    if (fstat(fd, &st) == 0 && !S_ISREG(st.st_mode)) {
+    int fd = open(marker, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd >= 0) {
         close(fd);
-        return;
     }
-    close(fd);
 }
 
 /* Release any runtime override set via rdump_set_oom_dump(). */
