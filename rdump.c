@@ -480,39 +480,38 @@ static int rdump_write_file(const char *path, int full, char **err)
     uint64_t bg_address = rdump_bg_address();
     int64_t rss = rdump_rss_bytes();
 
-    /* A dump is a verbatim copy of process memory -- secrets, keys, request
-     * bodies and all -- so it must never be born group/world-readable.
-     * O_CREAT's 0600 only applies when we create the file, so fchmod() also
-     * tightens a pre-existing one. O_NOFOLLOW refuses to follow a symlink
-     * planted at the path; O_CLOEXEC keeps the fd out of any child. */
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0600);
+    /* A dump is a verbatim copy of process memory (secrets, keys, request
+     * bodies and all), so be conservative about the output file:
+     *  - Refuse a path that already exists and isn't a plain regular file
+     *    (symlink, FIFO, device, socket, dir); never follow or write through
+     *    it. lstat() so a symlink is seen as a symlink, and so we never unlink
+     *    a device node (which as root would destroy e.g. /dev/null).
+     *  - Replace an existing regular file by unlinking it and creating a fresh
+     *    inode with O_EXCL|0600, not by truncating in place: a stale read fd
+     *    another process still holds then keeps the old content instead of
+     *    seeing the new dump (fchmod can't revoke such an fd). The new file is
+     *    born 0600; O_CLOEXEC keeps the fd out of any child. */
+    struct stat lst;
+    if (lstat(path, &lst) == 0) {
+        if (!S_ISREG(lst.st_mode)) {
+            free(entries);
+            free(maps_buf);
+            *err = "output path exists and is not a regular file";
+            return -1;
+        }
+        if (unlink(path) != 0) {
+            free(entries);
+            free(maps_buf);
+            *err = "failed to replace the existing output file";
+            return -1;
+        }
+    }
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (fd < 0) {
         free(entries);
         free(maps_buf);
-        *err = "failed to open output file for writing";
+        *err = "failed to create output file";
         return -1;
-    }
-    /* The target must be a regular file: O_NOFOLLOW blocks a symlink,
-     * O_NONBLOCK keeps a FIFO from blocking the open (which would hang the OOM
-     * death path), and S_ISREG rejects FIFOs/devices/sockets outright. A new
-     * file is already 0600 (open's mode); only tighten a pre-existing one, and
-     * abort if we can't, so secret memory never lands in a wider-readable file. */
-    {
-        struct stat st;
-        if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
-            close(fd);
-            free(entries);
-            free(maps_buf);
-            *err = "output path is not a regular file";
-            return -1;
-        }
-        if ((st.st_mode & 07777) != 0600 && fchmod(fd, 0600) != 0) {
-            close(fd);
-            free(entries);
-            free(maps_buf);
-            *err = "failed to secure output file to 0600";
-            return -1;
-        }
     }
 
     FILE *fp = fdopen(fd, "wb");

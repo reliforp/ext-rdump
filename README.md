@@ -75,6 +75,9 @@ rdump.oom_dump=/var/log/php-oom-%p.rdump   ; empty = disabled
 ;rdump.oom_dump_full=1                     ; also embed read-only segments
 ;rdump.oom_dump_max=1                      ; max auto-dumps per worker (0 = unlimited)
 ;rdump.oom_dump_min_interval=0             ; min seconds between auto-dumps (0 = off)
+;rdump.oom_dump_max_total=2G               ; skip once *.rdump in the dir would exceed this (0 = off)
+;rdump.oom_dump_marker=1                   ; also write "<path>.done" when a dump completes
+;rdump.safe_read=1                         ; read via /proc/self/mem (crash-safe; default on under ZTS)
 ```
 
 The path may contain `%p` (PID), `%i` (thread id), and `%t` (Unix time),
