@@ -84,7 +84,7 @@ overwrite one path. (This expansion applies only to the OOM auto-dump path:
 both the `rdump.oom_dump` INI value and a `rdump_set_oom_dump()` override. It
 does not apply to the literal `$path` you pass to `rdump_dump()`.)
 
-#### Don't let it run away
+#### Limiting the auto-dump
 
 A worker stuck at `memory_limit` can OOM on many requests, so an unguarded
 auto-dump could write a fresh (often 100 MB+) file every time and fill the disk.
