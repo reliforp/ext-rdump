@@ -229,6 +229,41 @@ configuration is crash-safe. The only way to hit the crash is to *explicitly*
 turn `safe_read` off under concurrent load — which the README already warns
 against. No code change needed; the default is load-bearing and correct.
 
+## Real PHP-FPM end-to-end
+
+The CI exercises the OOM auto-dump on the built-in server (one surviving process
+across requests, an FPM-worker *proxy*). This run did it on **real php-fpm**:
+the actual prefork pool, FastCGI, request teardown, and worker reuse. php-fpm
+8.4.19 (NTS) was built from source (the PPA is blocked here), ext-rdump loaded
+via `php.ini`, a `nobody:nogroup` pool with `pm=static pm.max_children=3`,
+`memory_limit=24M`, `rdump.oom_dump=/…/oom-%p.rdump`, `oom_dump_max=1`,
+`oom_dump_marker=1`. Requests were driven by a tiny FastCGI client (no nginx).
+
+- **OOM in a worker → per-worker auto-dump.** A request that exhausts
+  `memory_limit` returns the FastCGI 500 ("Allowed memory size of 25165824
+  bytes exhausted"), and the extension writes `oom-<pid>.rdump` (+ `.done`)
+  where `%p` is the **real FPM worker PID**, owned by the worker's user
+  (`nobody`) at `0600`.
+- **The worker survives the OOM** (it keeps serving) — the real-FPM
+  confirmation of the "surviving worker" property the built-in-server CI test
+  approximates.
+- **`oom_dump_max=1` caps per worker across requests.** Five serial OOM
+  requests produced only one dump per worker; deleting a worker's dump and
+  hitting it again produced **no** re-dump — the per-worker cap persists over a
+  live worker's lifetime, on real FPM.
+- **`%p` separates concurrent workers with no overwrite race.** Twelve
+  *concurrent* OOM requests across three workers produced exactly three
+  distinct `oom-<pid>.rdump` files (one per worker PID), each fully written
+  (identical sizes, no truncation) — workers don't race to clobber one path.
+- **reli reads the FPM dump.** `near_memory_limit` HIGH (97.0% of the 24 MB
+  limit), the exact FPM call stack (`str_repeat → <main>:5`), and the cause
+  (the runaway `$a` array, `ZendString` 97.6% of heap).
+
+So the headline production path — an FPM worker OOMs, the extension drops a
+per-worker snapshot, you analyse it offline with reli — works end to end on a
+real php-fpm pool, and the disk guards behave correctly across the genuine
+fork-pool/request lifecycle.
+
 ## Overhead and interop
 
 - **No steady-state overhead.** A CPU + allocation-churn benchmark (best of 5)
