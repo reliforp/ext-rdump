@@ -106,8 +106,10 @@ are never throttled. Give the path a `%p` so each worker writes a distinct file.
 #### Shipping dumps with a watcher
 
 Set `rdump.oom_dump_marker=1` and the extension drops an empty `<path>.done`
-once a dump is fully written. A watcher waits for `oom-1234.rdump.done`, then
-ships `oom-1234.rdump`, never racing a half-written file.
+once a dump is fully written. A watcher waits for `oom-1234.rdump.done` before
+shipping `oom-1234.rdump`, so it won't start on a half-written file. Give each
+dump a unique path (`%p`, plus `%t` for repeats) so a later dump can't truncate
+one while it is being shipped.
 
 #### Setting the path at runtime
 
