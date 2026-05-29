@@ -63,16 +63,11 @@ jobs:
           path: dumps
           merge-multiple: true
 
-      - name: Set up reli once, then analyse each cross-version dump
+      - name: Set up reli once, then analyse every cross-version dump
         run: |
           ls -l dumps
-          for d in dumps/*.rdump; do
-            tag="v$(basename "$d" | sed -E 's/^php([0-9])\.([0-9]).*/\1\2/')"
-            echo "::group::analyze $(basename "$d") (origin $tag)"
-            docker run --rm \
-              -e IN_DUMP="/in/$(basename "$d")" -e TAG="$tag" \
-              -v "$PWD/ext":/ext -v "$PWD/reli":/reli -v "$PWD/dumps":/in -w /reli \
-              php:8.4-cli \
-              sh /ext/ci/reli-analyze.sh
-            echo "::endgroup::"
-          done
+          docker run --rm \
+            -e IN_DIR=/in \
+            -v "$PWD/ext":/ext -v "$PWD/reli":/reli -v "$PWD/dumps":/in -w /reli \
+            php:8.4-cli \
+            sh /ext/ci/reli-analyze.sh
