@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package packagerversion="1.10.15" version="2.0"
+    xmlns="http://pear.php.net/dtd/package-2.0"
+    xmlns:tasks="http://pear.php.net/dtd/tasks-1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://pear.php.net/dtd/tasks-1.0
+http://pear.php.net/dtd/tasks-1.0.xsd
+http://pear.php.net/dtd/package-2.0
+http://pear.php.net/dtd/package-2.0.xsd">
+ <name>rdump</name>
+ <channel>pecl.php.net</channel>
+ <summary>Capture a PHP process's own memory for offline analysis with reli (finding leaks, reference cycles, memory bottlenecks, etc.).</summary>
+ <description>
+Writes a snapshot of the current PHP process's own memory to a file, which
+reli (reliforp/reli-prof) analyses offline to inspect the call stack and
+per-object memory and to find leaks, reference cycles and memory bottlenecks.
+Linux only.
+ </description>
+ <lead>
+  <name>sji</name>
+  <user>sji</user>
+  <email>sji@sj-i.dev</email>
+  <active>yes</active>
+ </lead>
+ <date>2026-05-28</date>
+ <version>
+  <release>0.1.0</release>
+  <api>0.1.0</api>
+ </version>
+ <stability>
+  <release>beta</release>
+  <api>beta</api>
+ </stability>
+ <license uri="https://opensource.org/licenses/MIT">MIT</license>
+ <notes>
+Initial release.
+ </notes>
+ <contents>
+  <dir name="/">
+   <file name="config.m4" role="src"/>
+   <file name="php_rdump.h" role="src"/>
+   <file name="rdump.c" role="src"/>
+   <file name="LICENSE" role="doc"/>
+   <file name="README.md" role="doc"/>
+   <dir name="tests">
+    <file name="dump.phpt" role="test"/>
+    <file name="file_perms.phpt" role="test"/>
+    <file name="full_flag.phpt" role="test"/>
+    <file name="overwrite_inode.phpt" role="test"/>
+    <file name="safe_read.phpt" role="test"/>
+    <file name="set_oom_dump.phpt" role="test"/>
+   </dir>
+  </dir>
+ </contents>
+ <dependencies>
+  <required>
+   <php>
+    <min>7.0.0</min>
+   </php>
+   <pearinstaller>
+    <min>1.4.0</min>
+   </pearinstaller>
+  </required>
+ </dependencies>
+ <providesextension>rdump</providesextension>
+ <extsrcrelease/>
+</package>

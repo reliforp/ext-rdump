@@ -1,0 +1,89 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: PHP ${{ matrix.php }} ${{ matrix.ts == 'zts' && 'ZTS' || 'NTS' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # reli supports target PHP 7.0 .. 8.5; cover the same range in
+        # both thread-safety builds.
+        php:
+          - '7.0'
+          - '7.1'
+          - '7.2'
+          - '7.3'
+          - '7.4'
+          - '8.0'
+          - '8.1'
+          - '8.2'
+          - '8.3'
+          - '8.4'
+          - '8.5'
+        ts:
+          - 'cli'   # NTS
+          - 'zts'   # ZTS
+    steps:
+      # Checkout runs on the host runner (modern glibc/node), then the
+      # build happens inside the target container with the tree mounted.
+      # This sidesteps node20-based actions failing on the old glibc of
+      # the 7.0-7.4 images.
+      - uses: actions/checkout@v5
+
+      - name: Build and test (php:${{ matrix.php }}-${{ matrix.ts }})
+        run: |
+          docker run --rm \
+            -e CI=1 \
+            -v "$PWD":/ext -w /ext \
+            "php:${{ matrix.php }}-${{ matrix.ts }}" \
+            sh ci/build-and-test.sh
+
+  reli-integration:
+    name: reli reads an ext-rdump dump (PHP 8.4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: ext
+
+      - uses: actions/checkout@v5
+        with:
+          repository: reliforp/reli-prof
+          path: reli
+
+      - name: Dump with ext-rdump, then read it with reli
+        run: |
+          docker run --rm \
+            -e CI=1 \
+            -v "$PWD/ext":/ext -v "$PWD/reli":/reli -w /ext \
+            php:8.4-cli \
+            sh ci/reli-integration.sh
+
+  leak-check:
+    name: Leak check PHP 8.4 ${{ matrix.ts == 'zts' && 'ZTS' || 'NTS' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ts:
+          - 'cli'   # NTS
+          - 'zts'   # ZTS
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Valgrind leak check (php:8.4-${{ matrix.ts }})
+        run: |
+          docker run --rm \
+            -v "$PWD":/ext -w /ext \
+            "php:8.4-${{ matrix.ts }}" \
+            sh ci/leak-check.sh
