@@ -146,8 +146,8 @@ eval "$(docker run --rm --pull=always reliforp/reli-prof docker:print-wrapper)"
 # analyse into reli's .rmem graph (feeds rmem:viz / rmem:explore)
 reli inspector:memory:analyze app.rdump -f rmem -o app.rmem
 
-# human-readable report: type breakdown, retention, leaks, cycles, findings
-reli inspector:memory:analyze app.rdump -f report
+# report from the .rmem: type breakdown, retention, leaks, cycles, findings
+reli inspector:memory:report app.rmem
 ```
 
 The Docker wrapper only bind-mounts your current directory, so run it from where
