@@ -53,21 +53,15 @@ bool rdump_dump(string $path, bool $full = false)
 ```
 
 Writes the dump to `$path`; returns `false` (with an `E_WARNING`) on failure.
-
-Trigger it where it matters — for example, on demand from a signal handler:
-
-```php
-// Dump on demand: kill -USR2 <pid>
-pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
-```
-
-To capture the moment of `memory_limit` exhaustion, don't wire this into a
-shutdown function — let the extension hook the fatal in C instead (see
-[below](#capturing-the-moment-of-memory_limit-death)); it catches even the OOMs
-a shutdown handler cannot.
-
 Pass `$full = true` for a self-contained dump (also embeds read-only code
 segments) when you will analyse it on a host that lacks the original binaries.
+
+### On demand from a signal handler
+
+```php
+// kill -USR2 <pid>
+pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
+```
 
 ### Capturing the moment of `memory_limit` death
 
