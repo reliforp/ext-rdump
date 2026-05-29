@@ -146,10 +146,10 @@ eval "$(docker run --rm --pull=always reliforp/reli-prof docker:print-wrapper)"
 # header / memory map / regions
 reli inspector:memory:dump:inspect app.rdump
 
-# full analysis: type breakdown, retention, leaks, cycles, findings
+# analyse into a memory graph (JSON by default)
 reli inspector:memory:analyze app.rdump
 
-# human-readable report
+# human-readable report: type breakdown, retention, leaks, cycles, findings
 reli inspector:memory:analyze app.rdump -f report
 ```
 
