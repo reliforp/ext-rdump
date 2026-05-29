@@ -474,9 +474,9 @@ static int rdump_write_file(const char *path, int full, char **err)
     }
 
     int rc = 0;
-    /* Crash-safe region reads via /proc/self/mem (opt-in; default on for ZTS).
-     * Declared before the first RDUMP_TRY so they're valid at the done: label
-     * even on an early jump. */
+    /* Crash-safe region reads via /proc/self/mem (opt-in via rdump.safe_read,
+     * off by default). Declared before the first RDUMP_TRY so they're valid at
+     * the done: label even on an early jump. */
     int mem_fd = -1;
     char *region_buf = NULL;
     size_t region_bufsz = 1024 * 1024;
@@ -912,7 +912,7 @@ PHP_INI_BEGIN()
         oom_dump_marker, zend_rdump_globals, rdump_globals
     )
     /* Crash-safe region reads via /proc/self/mem. Off by default (the direct
-     * copy is faster, and safe under NTS); recommended on under ZTS, where a
+     * copy is faster, and safe under NTS); recommended under ZTS, where a
      * concurrent thread can unmap a region mid-dump and crash it. */
     STD_PHP_INI_BOOLEAN(
         "rdump.safe_read", "0", PHP_INI_SYSTEM, OnUpdateBool,

@@ -143,6 +143,24 @@ else
 fi
 rm -rf "$EXPAND_DIR"
 
+# %i (thread id) also expands; in NTS the tid equals the PID, so the file is
+# oom-<pid>-<tid>.rdump.
+EXPAND_TID_DIR=/tmp/rdump-expand-tid
+rm -rf "$EXPAND_TID_DIR"; mkdir -p "$EXPAND_TID_DIR"
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$EXPAND_TID_DIR/oom-%p-%i.rdump" \
+    -r 'function r(){ r(); } r();' >/dev/null 2>&1 &
+EXPAND_TID_PID=$!
+wait "$EXPAND_TID_PID" 2>/dev/null || true
+if ls "$EXPAND_TID_DIR"/oom-"$EXPAND_TID_PID"-*.rdump >/dev/null 2>&1; then
+    echo "oom-expand (%i) OK"
+else
+    echo "::error::%i did not expand into the dump path"
+    ls "$EXPAND_TID_DIR" || true
+    exit 1
+fi
+rm -rf "$EXPAND_TID_DIR"
+
 # --- OOM auto-dump runaway guard (built-in server, multi-request) ----
 # A one-shot CLI run can only OOM once (one process = one request), so it
 # cannot show that rdump.oom_dump_max caps dumps over a worker's lifetime.
