@@ -131,6 +131,10 @@ effect rather than silently disabling the dump.
 
 ## Analyse with reli
 
+Reading the dump is reli's job; its
+[memory-dump docs](https://github.com/reliforp/reli-prof/blob/HEAD/docs/memory/memory-dump.md)
+have the full story. The essentials:
+
 ```bash
 # header / memory map / regions
 php reli inspector:memory:dump:inspect /tmp/app.rdump
