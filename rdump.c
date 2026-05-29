@@ -648,7 +648,13 @@ done:
 /* ------------------------------------------------------------------ */
 
 /* bool rdump_dump(string $path, bool $full = false) */
+#if PHP_VERSION_ID >= 70200
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_rdump_dump, 0, 1, _IS_BOOL, 0)
+#else
+/* 7.0/7.1's return-type arginfo macro has a different (class_name) arity, so
+ * fall back to plain arg info there; the typed args below still apply. */
+ZEND_BEGIN_ARG_INFO_EX(arginfo_rdump_dump, 0, 0, 1)
+#endif
     ZEND_ARG_TYPE_INFO(0, path, IS_STRING, 0)
     ZEND_ARG_TYPE_INFO(0, full, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
@@ -937,7 +943,11 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
 /* ------------------------------------------------------------------ */
 
 /* bool rdump_set_oom_dump(?string $path, bool $full = false) */
+#if PHP_VERSION_ID >= 70200
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_rdump_set_oom_dump, 0, 1, _IS_BOOL, 0)
+#else
+ZEND_BEGIN_ARG_INFO_EX(arginfo_rdump_set_oom_dump, 0, 0, 1)
+#endif
     ZEND_ARG_TYPE_INFO(0, path, IS_STRING, 1)
     ZEND_ARG_TYPE_INFO(0, full, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
