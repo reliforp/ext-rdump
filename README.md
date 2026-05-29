@@ -65,8 +65,8 @@ pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
 
 ### Capturing the moment of `memory_limit` death
 
-To capture the moment of `memory_limit` exhaustion, let the extension hook the
-fatal in C, via php.ini:
+To capture the moment of `memory_limit` exhaustion, enable the auto-dump in
+php.ini:
 
 ```ini
 extension=rdump.so
