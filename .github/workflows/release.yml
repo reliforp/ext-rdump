@@ -1,0 +1,67 @@
+name: release
+
+# On a v* tag: verify the version metadata is in sync, build and test, build
+# the PECL tarball (the exact artifact uploaded to pecl.php.net), and attach it
+# to the GitHub Release. PIE installs straight from the tagged source via
+# Packagist, so no separate artifact is needed for it.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Build PECL package for ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up PHP with pecl/pear
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: pecl
+
+      - name: Check version metadata is in sync with the tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          hdr="$(sed -n 's/^#define PHP_RDUMP_VERSION "\(.*\)"/\1/p' php_rdump.h)"
+          pkg="$(sed -n 's:.*<release>\(.*\)</release>.*:\1:p' package.xml | head -1)"
+          echo "tag=$tag  php_rdump.h=$hdr  package.xml=$pkg"
+          if [ "$tag" != "$hdr" ] || [ "$tag" != "$pkg" ]; then
+            echo "::error::version mismatch (tag=$tag header=$hdr package.xml=$pkg)"
+            exit 1
+          fi
+
+      - name: Validate package.xml
+        run: pecl package-validate
+
+      - name: Build the extension and run the test suite
+        run: |
+          phpize
+          ./configure --enable-rdump
+          make -j"$(nproc)"
+          NO_INTERACTION=1 \
+          TEST_PHP_EXECUTABLE="$(command -v php)" \
+          TEST_PHP_ARGS="-d extension=$(pwd)/modules/rdump.so" \
+            php run-tests.php -q tests/
+
+      - name: Build the PECL tarball
+        run: |
+          pecl package
+          ls -l ./*.tgz
+
+      - name: Install from the tarball as a smoke test
+        run: |
+          sudo pecl install ./rdump-*.tgz
+          php -d extension=rdump -m | grep -qi '^rdump$' && echo "loads OK"
+
+      - name: Attach the tarball to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./rdump-*.tgz
+          generate_release_notes: true
