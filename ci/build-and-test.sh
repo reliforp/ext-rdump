@@ -120,6 +120,26 @@ else
     exit 1
 fi
 
+# --- OOM dump path %p expansion --------------------------------------
+# The auto-dump path expands %p to the PID. Run the OOMing child in the
+# background so we know its PID, then require the dump named with that exact
+# PID to exist.
+EXPAND_DIR=/tmp/rdump-expand
+rm -rf "$EXPAND_DIR"; mkdir -p "$EXPAND_DIR"
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$EXPAND_DIR/oom-%p.rdump" \
+    -r 'function r(){ r(); } r();' >/dev/null 2>&1 &
+EXPAND_PID=$!
+wait "$EXPAND_PID" 2>/dev/null || true
+if [ -s "$EXPAND_DIR/oom-$EXPAND_PID.rdump" ]; then
+    echo "oom-expand (%p) OK"
+else
+    echo "::error::%p did not expand to the worker PID"
+    ls "$EXPAND_DIR" || true
+    exit 1
+fi
+rm -rf "$EXPAND_DIR"
+
 # --- OOM auto-dump runaway guard (built-in server, multi-request) ----
 # A one-shot CLI run can only OOM once (one process = one request), so it
 # cannot show that rdump.oom_dump_max caps dumps over a worker's lifetime.
@@ -263,3 +283,19 @@ if [ -s "$MARKER_DUMP.done" ]; then
 fi
 echo "oom-marker OK"
 rm -rf "$MARKER_DIR"
+
+# --- OOM marker only on a successful dump ----------------------------
+# A failed dump must not leave a completion marker. Point the dump at a
+# directory so open() fails; the .done (creatable in the parent) must not
+# appear.
+FAILMARK_DIR=/tmp/rdump-failmarker
+rm -rf "$FAILMARK_DIR"; mkdir -p "$FAILMARK_DIR/adir"
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$FAILMARK_DIR/adir" -d rdump.oom_dump_marker=1 \
+    -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
+if [ -e "$FAILMARK_DIR/adir.done" ]; then
+    echo "::error::a .done marker was written for a failed dump"
+    exit 1
+fi
+echo "oom-marker (none on failure) OK"
+rm -rf "$FAILMARK_DIR"
