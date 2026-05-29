@@ -38,13 +38,16 @@ phpize && ./configure --enable-rdump && make && sudo make install
 # extension=rdump.so
 ```
 
-Or via [PIE](https://github.com/php/pie) / PECL:
+Or via a package manager:
 
 ```bash
-pie install reliforp/ext-rdump
+pie install reliforp/ext-rdump   # PIE (the pie tool needs PHP 8.1+)
 # or
-pecl install package.xml   # from a checkout
+pecl install rdump               # PECL, handy on older PHP (once published)
 ```
+
+The extension builds on PHP 7.0+; PIE is the modern route, while `pecl install`
+is convenient on the older runtimes PIE itself can't run on.
 
 ## Usage
 
