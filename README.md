@@ -144,14 +144,19 @@ to persist it across shells):
 eval "$(docker run --rm --pull=always reliforp/reli-prof docker:print-wrapper)"
 
 # header / memory map / regions
-reli inspector:memory:dump:inspect /tmp/app.rdump
+reli inspector:memory:dump:inspect app.rdump
 
 # full analysis: type breakdown, retention, leaks, cycles, findings
-reli inspector:memory:analyze /tmp/app.rdump
+reli inspector:memory:analyze app.rdump
 
 # human-readable report
-reli inspector:memory:analyze /tmp/app.rdump -f report
+reli inspector:memory:analyze app.rdump -f report
 ```
+
+The Docker wrapper only bind-mounts your current directory, so run it from where
+the dump lives. A path outside it, including a `--dependency-root`, needs a bind
+mount via `RELI_DOCKER_EXTRA_ARGS='-v /path:/path'` (see
+[docker-wrapper.md](https://github.com/reliforp/reli-prof/blob/HEAD/docs/docker-wrapper.md)).
 
 Analysing on a different host? Either use `$full = true` at capture time, or
 point reli at a copy of the target's filesystem with `--dependency-root=/path`.
