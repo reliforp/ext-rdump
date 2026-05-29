@@ -30,39 +30,28 @@ and you can:
 
 ## Install
 
-The extension is built from source on every route below (there are no
-prebuilt binaries), so you need a compiler and the PHP development headers
-(`php-dev` / `php-devel`).
+Built from source (no prebuilt binaries), so you need a compiler and the PHP
+development headers (`php-dev` / `php-devel`).
 
-Via [PIE](https://github.com/php/pie) (the modern installer; the `pie` tool
-itself needs PHP 8.1+, though the extension builds on 7.0+):
+Via [PIE](https://github.com/php/pie) (needs PHP 8.1+ to run; the extension
+itself builds on 7.0+):
 
 ```bash
 pie install reliforp/ext-rdump
 ```
 
-Or from a checkout with `pecl`, which runs the whole `phpize` build for you —
-handy on the older PHP that PIE can't run on:
+Or from a checkout — `pecl` for the older PHP that PIE can't run on, or plain
+`phpize`. Both build `rdump.so`; then enable `extension=rdump.so` as pecl or
+your distro directs.
 
 ```bash
 git clone https://github.com/reliforp/ext-rdump && cd ext-rdump
 pecl install package.xml
-# then enable it (pecl prints the exact line; on distros with a scan dir use
-# that instead of editing php.ini), e.g.:
-# echo 'extension=rdump.so' | sudo tee /etc/php/$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')/mods-available/rdump.ini
+# or: phpize && ./configure --enable-rdump && make && sudo make install
 ```
 
-Or plain `phpize`:
-
-```bash
-phpize && ./configure --enable-rdump && make && sudo make install
-# then add to php.ini:
-# extension=rdump.so
-```
-
-> PECL's central channel (`pecl install rdump`) is **not** available: pecl.php.net
-> is deprecated and no longer accepts new packages. `pecl install package.xml`
-> above is just the local build helper and works regardless.
+(`pecl install rdump` from pecl.php.net isn't available — it's deprecated and
+takes no new packages.)
 
 ## Usage
 
