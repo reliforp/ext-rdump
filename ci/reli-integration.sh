@@ -55,10 +55,20 @@ echo "$INSPECT" | head -20
 echo "$INSPECT" | grep -q 'Magic:.*RDUMP'      || { echo '::error::reli did not recognise the RDUMP magic'; exit 1; }
 echo "$INSPECT" | grep -q 'Format Version:.*3'  || { echo '::error::reli read an unexpected format version'; exit 1; }
 
-# Full analysis must also complete without error.
-php -d ffi.enable=1 reli inspector:memory:analyze "$DUMP" -f report \
-    | tee /tmp/reli-analyze.log | head -30
-grep -q 'Memory Analysis Report' /tmp/reli-analyze.log \
-    || { echo '::error::reli analyze did not produce a report'; exit 1; }
+# Full analysis must also complete and emit a report. Capture stdout+stderr so
+# a fatal/exception is visible in the CI log instead of a bare "no report".
+if php -d ffi.enable=1 reli inspector:memory:analyze "$DUMP" -f report \
+        >/tmp/reli-analyze.log 2>&1; then
+    head -30 /tmp/reli-analyze.log
+else
+    echo '::error::reli analyze exited non-zero; full output:'
+    cat /tmp/reli-analyze.log
+    exit 1
+fi
+grep -q 'Memory Analysis Report' /tmp/reli-analyze.log || {
+    echo '::error::reli analyze produced no report; full output:'
+    cat /tmp/reli-analyze.log
+    exit 1
+}
 
 echo "reli-integration OK"
