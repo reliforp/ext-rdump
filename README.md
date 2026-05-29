@@ -85,9 +85,9 @@ to the literal `$path` you pass to `rdump_dump()`.)
 
 #### Don't let it run away
 
-A worker pinned at `memory_limit` tends to OOM on *every* request, so an
-unguarded auto-dump would write a fresh (often 100 MB+) file each time and bury
-the disk. By default the auto-dump therefore fires **at most once per worker
+A worker pinned at `memory_limit` may OOM on many — possibly every — request, so
+an unguarded auto-dump could write a fresh (often 100 MB+) file each time and
+bury the disk. By default the auto-dump therefore fires **at most once per worker
 process** (`rdump.oom_dump_max=1`); the counter is per worker and spans requests,
 so restarting the worker re-arms it. Raise the cap if you want more, and/or set a
 minimum spacing — both gates apply together:
