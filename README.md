@@ -30,7 +30,26 @@ and you can:
 
 ## Install
 
-From source:
+The extension is built from source on every route below (there are no
+prebuilt binaries), so you need a compiler and the PHP development headers
+(`php-dev` / `php-devel`).
+
+Via [PIE](https://github.com/php/pie) (the modern installer; the `pie` tool
+itself needs PHP 8.1+, though the extension builds on 7.0+):
+
+```bash
+pie install reliforp/ext-rdump
+```
+
+Or from a checkout with `pecl`, which compiles and registers the extension in
+`php.ini` for you — handy on the older PHP that PIE can't run on:
+
+```bash
+git clone https://github.com/reliforp/ext-rdump && cd ext-rdump
+pecl install package.xml
+```
+
+Or plain `phpize`:
 
 ```bash
 phpize && ./configure --enable-rdump && make && sudo make install
@@ -38,13 +57,9 @@ phpize && ./configure --enable-rdump && make && sudo make install
 # extension=rdump.so
 ```
 
-Or via [PIE](https://github.com/php/pie) / PECL:
-
-```bash
-pie install reliforp/ext-rdump
-# or
-pecl install package.xml   # from a checkout
-```
+> PECL's central channel (`pecl install rdump`) is **not** available: pecl.php.net
+> is deprecated and no longer accepts new packages. `pecl install package.xml`
+> above is just the local build helper and works regardless.
 
 ## Usage
 

@@ -1,0 +1,8 @@
+# Keep development-only files out of the `git archive` / Packagist dist zip.
+# (PECL packaging is driven by package.xml, not this file.)
+/.github        export-ignore
+/.gitattributes export-ignore
+/.gitignore     export-ignore
+/ci             export-ignore
+/tests          export-ignore
+/RELEASING.md   export-ignore
