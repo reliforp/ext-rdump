@@ -36,6 +36,10 @@ symlink($target, $link);
 var_dump(@rdump_dump($link));
 var_dump(file_get_contents($target) === "victim");
 
+// 4) A non-regular target (here /dev/null, a char device) is refused, so a
+//    FIFO/device/socket can't be written to (or hang) instead of a file.
+var_dump(@rdump_dump("/dev/null"));
+
 @unlink($new);
 @unlink($pre);
 @unlink($target);
@@ -48,3 +52,4 @@ bool(true)
 string(3) "600"
 bool(false)
 bool(true)
+bool(false)

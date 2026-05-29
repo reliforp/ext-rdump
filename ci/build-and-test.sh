@@ -161,6 +161,21 @@ else
 fi
 rm -rf "$EXPAND_TID_DIR"
 
+# %% expands to a literal percent.
+PCT_DIR=/tmp/rdump-pct
+rm -rf "$PCT_DIR"; mkdir -p "$PCT_DIR"
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$PCT_DIR/oom-%%.rdump" \
+    -r 'function r(){ r(); } r();' >/dev/null 2>&1 || true
+if [ -s "$PCT_DIR/oom-%.rdump" ]; then
+    echo "oom-expand (%%) OK"
+else
+    echo "::error::%% did not expand to a literal percent"
+    ls "$PCT_DIR" || true
+    exit 1
+fi
+rm -rf "$PCT_DIR"
+
 # --- OOM auto-dump runaway guard (built-in server, multi-request) ----
 # A one-shot CLI run can only OOM once (one process = one request), so it
 # cannot show that rdump.oom_dump_max caps dumps over a worker's lifetime.
@@ -230,6 +245,30 @@ if [ ! -s "$CAP_DUMP" ]; then
 fi
 echo "oom-cap (unlimited) OK"
 rm -f "$CAP_DUMP"
+
+# min_interval: a second OOM within the window must not re-dump (max=0 so the
+# count cap doesn't interfere).
+INTERVAL_DUMP=/tmp/rdump-interval.rdump
+rm -f "$INTERVAL_DUMP"
+php -d extension="$SO" -d memory_limit=8M \
+    -d rdump.oom_dump="$INTERVAL_DUMP" -d rdump.oom_dump_max=0 \
+    -d rdump.oom_dump_min_interval=3600 \
+    -S 127.0.0.1:8079 /tmp/rdump-oom-app.php >/tmp/rdump-srv.log 2>&1 &
+SRV=$!
+rdump_wait_up 8079 || { kill "$SRV" 2>/dev/null || true; exit 1; }
+rdump_req 8079
+if [ ! -s "$INTERVAL_DUMP" ]; then
+    echo "::error::first OOM produced no dump (interval test)"
+    kill "$SRV" 2>/dev/null || true; exit 1
+fi
+rm -f "$INTERVAL_DUMP"
+rdump_req 8079
+kill "$SRV" 2>/dev/null || true; wait "$SRV" 2>/dev/null || true
+if [ -e "$INTERVAL_DUMP" ]; then
+    echo "::error::rdump.oom_dump_min_interval did not suppress a dump within the window"
+    exit 1
+fi
+echo "oom-interval OK"
 
 # --- OOM auto-dump total-size budget --------------------------------
 # Unlike the per-worker count cap, the byte budget bounds the *combined*
