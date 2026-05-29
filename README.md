@@ -133,17 +133,19 @@ effect rather than silently disabling the dump.
 
 Reading the dump is reli's job; its
 [memory-dump docs](https://github.com/reliforp/reli-prof/blob/HEAD/docs/memory/memory-dump.md)
-have the full story. The essentials:
+have the full story. The easiest way to run it is reli's Docker image: its
+[getting-started guide](https://github.com/reliforp/reli-prof/blob/HEAD/docs/getting-started.md)
+sets up a `reli` command for you, with no local PHP 8.4 / FFI setup. Then:
 
 ```bash
 # header / memory map / regions
-php reli inspector:memory:dump:inspect /tmp/app.rdump
+reli inspector:memory:dump:inspect /tmp/app.rdump
 
 # full analysis: type breakdown, retention, leaks, cycles, findings
-php reli inspector:memory:analyze /tmp/app.rdump
+reli inspector:memory:analyze /tmp/app.rdump
 
 # human-readable report
-php reli inspector:memory:analyze /tmp/app.rdump -f report
+reli inspector:memory:analyze /tmp/app.rdump -f report
 ```
 
 Analysing on a different host? Either use `$full = true` at capture time, or
