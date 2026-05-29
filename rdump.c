@@ -375,8 +375,10 @@ static uint64_t rdump_dir_rdump_total(const char *dir, const char *except_base)
         if ((size_t)snprintf(full, sizeof(full), "%s/%s", dir, n) >= sizeof(full)) {
             continue;
         }
+        /* lstat, not stat: a symlink named *.rdump in a writable dump dir must
+         * not let its target's size (or a device) skew the budget. */
         struct stat st;
-        if (stat(full, &st) == 0 && S_ISREG(st.st_mode)) {
+        if (lstat(full, &st) == 0 && S_ISREG(st.st_mode)) {
             total += (uint64_t)st.st_size;
         }
     }
@@ -398,6 +400,8 @@ static const char rdump_magic[8] = {'R', 'D', 'U', 'M', 'P', '\0', '\0', '\0'};
 static int rdump_write_region_safe(FILE *fp, int mem_fd, uint64_t start,
                                    uint64_t size, char *buf, size_t bufsz)
 {
+    long pg = sysconf(_SC_PAGESIZE);
+    size_t page = (pg > 0) ? (size_t)pg : 4096;
     uint64_t pos = 0;
     while (pos < size) {
         size_t want = (size - pos) > (uint64_t)bufsz ? bufsz : (size_t)(size - pos);
@@ -405,15 +409,21 @@ static int rdump_write_region_safe(FILE *fp, int mem_fd, uint64_t start,
         while (filled < want) {
             ssize_t got = pread(mem_fd, buf + filled, want - filled,
                                 (off_t)(start + pos + filled));
+            if (got > 0) {
+                filled += (size_t)got;
+                continue;
+            }
             if (got < 0 && errno == EINTR) {
                 continue;   /* transient interruption: retry the same offset */
             }
-            if (got <= 0) {
-                /* EFAULT (concurrently unmapped) or EOF: zero-fill the rest. */
-                memset(buf + filled, 0, want - filled);
-                break;
+            /* EFAULT (a concurrently unmapped page) or EOF: zero just one page
+             * and resume past it, so a single hole doesn't blank the rest of
+             * the block when later pages are still readable. */
+            {
+                size_t step = (want - filled) < page ? (want - filled) : page;
+                memset(buf + filled, 0, step);
+                filled += step;
             }
-            filled += (size_t)got;
         }
         if (rdump_wr(fp, buf, want) != 0) {
             return -1;
@@ -554,14 +564,19 @@ static int rdump_write_file(const char *path, int full, char **err)
 
 #undef RDUMP_TRY
 done:
-    if (rc != 0) {
-        *err = "failed while writing dump file (disk full?)";
-    }
     if (mem_fd >= 0) {
         close(mem_fd);
     }
     free(region_buf);
-    fclose(fp);
+    /* A deferred write error (NFS, quota, delayed writeback) can surface only
+     * at the final flush, so fold a fclose() failure into rc; otherwise a
+     * truncated dump looks successful and (on the OOM path) gets a .done. */
+    if (fclose(fp) != 0 && rc == 0) {
+        rc = -1;
+    }
+    if (rc != 0) {
+        *err = "failed while writing dump file (disk full?)";
+    }
     free(entries);
     free(maps_buf);
     return rc;
