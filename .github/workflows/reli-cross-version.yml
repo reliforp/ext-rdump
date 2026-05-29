@@ -1,0 +1,74 @@
+name: reli-cross-version
+
+# Cross-version integration: a dump produced by ext-rdump on *any* supported
+# PHP (7.0 .. 8.5, NTS and ZTS) must be analysable by current reli (which itself
+# needs PHP 8.4+). Stage 1 builds the extension on each version and writes a
+# self-contained dump; stage 2 sets reli up once and analyses every dump.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: reli-xver-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  make-dumps:
+    name: Dump on PHP ${{ matrix.php }} ${{ matrix.ts == 'zts' && 'ZTS' || 'NTS' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.0', '7.1', '7.2', '7.3', '7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+        ts: ['cli', 'zts']
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build ext-rdump and write a dump (php:${{ matrix.php }}-${{ matrix.ts }})
+        run: |
+          mkdir -p out
+          docker run --rm \
+            -e OUT_DUMP=/out/php${{ matrix.php }}-${{ matrix.ts }}.rdump \
+            -v "$PWD":/ext -v "$PWD/out":/out -w /ext \
+            "php:${{ matrix.php }}-${{ matrix.ts }}" \
+            sh ci/reli-make-dump.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dump-${{ matrix.php }}-${{ matrix.ts }}
+          path: out/*.rdump
+          retention-days: 1
+
+  analyze:
+    name: reli (PHP 8.4) analyses every dump
+    needs: make-dumps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: ext
+
+      - uses: actions/checkout@v5
+        with:
+          repository: reliforp/reli-prof
+          path: reli
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dumps
+          merge-multiple: true
+
+      - name: Set up reli once, then analyse each cross-version dump
+        run: |
+          ls -l dumps
+          for d in dumps/*.rdump; do
+            tag="v$(basename "$d" | sed -E 's/^php([0-9])\.([0-9]).*/\1\2/')"
+            echo "::group::analyze $(basename "$d") (origin $tag)"
+            docker run --rm \
+              -e IN_DUMP="/in/$(basename "$d")" -e TAG="$tag" \
+              -v "$PWD/ext":/ext -v "$PWD/reli":/reli -v "$PWD/dumps":/in -w /reli \
+              php:8.4-cli \
+              sh /ext/ci/reli-analyze.sh
+            echo "::endgroup::"
+          done
