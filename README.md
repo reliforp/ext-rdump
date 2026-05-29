@@ -97,8 +97,7 @@ rdump.oom_dump_max_total=0      ; skip once *.rdump in the dump dir would exceed
 
 `oom_dump_max` is a per-worker count (default 1 = one dump per worker).
 `oom_dump_max_total` bounds the *combined* footprint across workers; it counts
-every `*.rdump` in the directory plus the incoming dump's own size, so set it to a
-few times one dump. Both are
+every `*.rdump` in the directory plus the incoming dump's own size. Both are
 best-effort: concurrent workers can still overshoot together.
 
 These guards apply only to the automatic OOM dump; explicit `rdump_dump()` calls
