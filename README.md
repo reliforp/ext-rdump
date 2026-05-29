@@ -65,11 +65,8 @@ pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
 
 ### Capturing the moment of `memory_limit` death
 
-A `register_shutdown_function` misses the worst OOMs: when the fatal is itself
-a VM-stack allocation (or the stack sits at a page boundary), pushing the
-handler's own call frame needs another allocation that also fails, so the
-handler never runs. To catch those, let the extension hook the fatal in C, via
-php.ini:
+To capture the moment of `memory_limit` exhaustion, let the extension hook the
+fatal in C, via php.ini:
 
 ```ini
 extension=rdump.so
