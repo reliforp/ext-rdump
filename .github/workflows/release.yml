@@ -1,38 +1,37 @@
 name: release
 
-# On a v* tag: verify the version metadata is in sync, build and test, build a
-# package tarball (via `pecl package`, validating package.xml on the way), and
-# attach it to the GitHub Release as a convenience source archive. Distribution
-# is via PIE/Packagist (PIE installs straight from the tagged source); the
-# tarball is just an alternative for `pecl install ./rdump-X.Y.Z.tgz` from a
-# checkout-free download. There is no upload to pecl.php.net (deprecated).
+# On a v* tag: verify the version metadata is in sync, validate both manifests,
+# build and test, build a package tarball, and attach it to the GitHub Release
+# as a convenience source archive. Distribution is via PIE/Packagist (PIE
+# installs straight from the tagged source); the tarball is just an alternative
+# for `pecl install ./rdump-X.Y.Z.tgz` from a checkout-free download. There is
+# no upload to pecl.php.net (deprecated).
 #
-# workflow_dispatch is offered for a dry run (validate + build + test + package,
-# minus the Release upload); it requires being dispatched from a v* tag so the
-# version check has a tag to compare against.
+# Tag-push only: the version checks need a v* tag to compare against, and a
+# Web-UI workflow_dispatch (which runs against a branch) would just fail that
+# check. To dry-run a tag without publishing, see RELEASING.md
+# (gh workflow run ... --ref vX.Y.Z).
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
+# Least privilege: the build/validate/package job needs only read. Only the
+# final job that creates the GitHub Release gets contents: write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   package:
-    name: Build release tarball for ${{ github.ref_name }}
+    name: Validate, test and build the tarball for ${{ github.ref_name }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      - name: Require a v* tag ref
-        run: |
-          if [ "$GITHUB_REF_TYPE" != "tag" ] || ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]'; then
-            echo "::error::run this workflow from a v* tag (got ref_type=$GITHUB_REF_TYPE ref=$GITHUB_REF_NAME)"
-            exit 1
-          fi
-
+      # A representative PHP is enough here: this job only validates the
+      # manifests and produces/smoke-installs the source tarball (which is
+      # version-agnostic). The full 7.0-8.5 x NTS/ZTS x arch coverage is the
+      # build / reli-cross-version workflows' job, not the release packaging.
       - name: Set up PHP with pecl/pear and composer
         uses: shivammathur/setup-php@v2
         with:
@@ -80,9 +79,25 @@ jobs:
           sudo pecl install ./rdump-*.tgz
           php -d extension=rdump -m | grep -qi '^rdump$' && echo "loads OK"
 
-      - name: Attach the tarball to the GitHub Release
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+      - name: Upload the tarball for the release job
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-tarball
+          path: ./rdump-*.tgz
+          retention-days: 1
+
+  release:
+    name: Attach the tarball to the GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only this job writes (creates the Release)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-tarball
+
+      - uses: softprops/action-gh-release@v2
         with:
           files: ./rdump-*.tgz
           generate_release_notes: true
