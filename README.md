@@ -85,43 +85,25 @@ does not apply to the literal `$path` you pass to `rdump_dump()`.)
 
 #### Don't let it run away
 
-A worker pinned at `memory_limit` may OOM on many requests, possibly every one, so
-an unguarded auto-dump could write a fresh (often 100 MB+) file each time and
-bury the disk. By default the auto-dump therefore fires **at most once per worker
-process** (`rdump.oom_dump_max=1`); the counter is per worker and spans requests,
-so restarting the worker re-arms it. Raise the cap if you want more, and/or set a
-minimum spacing. Both gates apply together:
+A worker stuck at `memory_limit` can OOM on many requests, so an unguarded
+auto-dump could write a fresh (often 100 MB+) file every time and fill the disk.
+Three guards rein it in, all applied together:
 
 ```ini
-rdump.oom_dump_max=5            ; up to 5 dumps over the worker's lifetime (0 = unlimited)
-rdump.oom_dump_min_interval=60  ; ...and at least 60s apart
+rdump.oom_dump_max=1            ; max dumps per worker process (default 1; 0 = unlimited)
+rdump.oom_dump_min_interval=0   ; min seconds between dumps (default 0 = off)
+rdump.oom_dump_max_total=0      ; skip once *.rdump in the dump dir would exceed this (K/M/G; 0 = off)
 ```
 
-The per-worker count still leaves the fleet total unbounded: 200 workers writing
-one 130 MB dump each is 26 GB. To cap the *combined* footprint, set a byte budget
-(accepts `K`/`M`/`G` suffixes); before each auto-dump the extension sums the
-`*.rdump` files already in the dump's directory and skips if they meet the budget:
+`oom_dump_max` spans the worker's whole lifetime, so the default of 1 already
+stops runaway dumps (restart the worker to re-arm). `oom_dump_max_total` bounds
+the *combined* footprint across workers (200 workers writing one 130 MB dump each
+is 26 GB); it counts every `*.rdump` in the directory plus the incoming dump's
+own size, so set it to a few times one dump. Both are best-effort: concurrent
+workers can still overshoot together.
 
-```ini
-rdump.oom_dump_max_total=2G     ; skip the auto-dump once *.rdump there would exceed 2G (0 = off)
-```
-
-The check adds the incoming dump's own minimum size (its ZendMM heap,
-`~memory_get_usage(true)`) to the existing total, so it skips *before* crossing
-the line rather than one dump after. A corollary: set the budget to at least a
-few times a single dump's size, since a budget smaller than one dump means no dump is
-ever written.
-
-Two caveats remain. It is still a *soft* limit: concurrent workers can each pass
-the check and overshoot together, and the reservation is a lower bound, so the
-written dump can be larger than reserved. And it counts **every** `*.rdump` in
-that directory, so give OOM dumps a directory of their own if other `.rdump`
-files live alongside.
-
-A dump attempt counts toward the cap whether it succeeds or not, so a bad path or
-a full disk can't retry forever either. These guards apply only to the automatic
-OOM dump; explicit `rdump_dump()` calls are never throttled. (Combine them with a
-`%p` path so each worker still writes a distinct file.)
+These guards apply only to the automatic OOM dump; explicit `rdump_dump()` calls
+are never throttled. Give the path a `%p` so each worker writes a distinct file.
 
 #### Shipping dumps with a watcher
 
