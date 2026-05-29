@@ -48,6 +48,37 @@ jobs:
             "php:${{ matrix.php }}-${{ matrix.ts }}" \
             sh ci/build-and-test.sh
 
+  build-arm64:
+    name: PHP ${{ matrix.php }} ${{ matrix.ts == 'zts' && 'ZTS' || 'NTS' }} (arm64)
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        # Representative coverage on arm64 (mirrors reli-prof's arm64 matrix):
+        # an old 7.x, a mid 8.x, and current 8.x in both thread-safety builds.
+        # The full version sweep runs on x86-64 above.
+        include:
+          - php: '7.4'
+            ts: 'cli'
+          - php: '8.2'
+            ts: 'cli'
+          - php: '8.4'
+            ts: 'cli'
+          - php: '8.4'
+            ts: 'zts'
+    steps:
+      - uses: actions/checkout@v5
+
+      # The official php:* images are multi-arch, so on an arm64 runner this
+      # pulls and builds the native aarch64 variant.
+      - name: Build and test (php:${{ matrix.php }}-${{ matrix.ts }}, arm64)
+        run: |
+          docker run --rm \
+            -e CI=1 \
+            -v "$PWD":/ext -w /ext \
+            "php:${{ matrix.php }}-${{ matrix.ts }}" \
+            sh ci/build-and-test.sh
+
   reli-integration:
     name: reli reads an ext-rdump dump (PHP 8.4)
     runs-on: ubuntu-latest
