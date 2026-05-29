@@ -693,7 +693,7 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
 
             zend_long max = RDUMP_G(oom_dump_max);
             zend_long interval = RDUMP_G(oom_dump_min_interval);
-            zend_long budget = RDUMP_G(oom_dump_max_total);
+            zend_long budget = rdump_parse_bytes(RDUMP_G(oom_dump_max_total));
             zend_long now = (zend_long)time(NULL);
             int capped = (max > 0 && RDUMP_G(oom_dump_count) >= max);
             int too_soon = (interval > 0
@@ -818,14 +818,6 @@ PHP_FUNCTION(rdump_set_oom_dump)
 /* Module plumbing.                                                   */
 /* ------------------------------------------------------------------ */
 
-/* Accept memory_limit-style sizes ("256M", "2G", ...) for the dump budget. */
-static ZEND_INI_MH(OnUpdateRdumpBytes)
-{
-    zend_long *p = (zend_long *)ZEND_INI_GET_ADDR();
-    *p = rdump_parse_bytes(ZSTR_VAL(new_value));
-    return SUCCESS;
-}
-
 PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY(
         "rdump.oom_dump", "", PHP_INI_SYSTEM, OnUpdateString,
@@ -844,7 +836,7 @@ PHP_INI_BEGIN()
         oom_dump_min_interval, zend_rdump_globals, rdump_globals
     )
     STD_PHP_INI_ENTRY(
-        "rdump.oom_dump_max_total", "0", PHP_INI_SYSTEM, OnUpdateRdumpBytes,
+        "rdump.oom_dump_max_total", "0", PHP_INI_SYSTEM, OnUpdateString,
         oom_dump_max_total, zend_rdump_globals, rdump_globals
     )
     STD_PHP_INI_BOOLEAN(
@@ -868,7 +860,7 @@ static PHP_GINIT_FUNCTION(rdump)
     rdump_globals->oom_dump_full = 0;
     rdump_globals->oom_dump_max = 1;
     rdump_globals->oom_dump_min_interval = 0;
-    rdump_globals->oom_dump_max_total = 0;
+    rdump_globals->oom_dump_max_total = NULL;
     rdump_globals->oom_dump_count = 0;
     rdump_globals->oom_dump_last_ts = 0;
     rdump_globals->oom_dump_marker = 0;

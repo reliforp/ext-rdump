@@ -32,9 +32,9 @@ ZEND_BEGIN_MODULE_GLOBALS(rdump)
      * count/last_ts are process- (per-thread-) scoped and survive RSHUTDOWN. */
     zend_long oom_dump_max;          /* rdump.oom_dump_max (INI): 0 = unlimited */
     zend_long oom_dump_min_interval; /* rdump.oom_dump_min_interval (INI), seconds; 0 = off */
-    zend_long oom_dump_max_total;    /* rdump.oom_dump_max_total (INI), bytes; 0 = off.
-                                      * Budget across all *.rdump in the dump dir,
-                                      * so many workers can't fill the disk together. */
+    char *oom_dump_max_total;        /* rdump.oom_dump_max_total (INI): byte budget
+                                      * across all *.rdump in the dump dir (K/M/G
+                                      * suffixes; "0" = off), parsed on use. */
     zend_long oom_dump_count;        /* OOM dumps attempted so far this process */
     zend_long oom_dump_last_ts;      /* time() of the last OOM dump attempt, 0 = none */
     zend_bool oom_dump_marker;       /* rdump.oom_dump_marker (INI): write <path>.done */
