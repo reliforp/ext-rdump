@@ -33,11 +33,11 @@ jobs:
             exit 1
           fi
 
-      - name: Set up PHP with pecl/pear
+      - name: Set up PHP with pecl/pear and composer
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          tools: pecl
+          tools: pecl, composer
 
       - name: Check version metadata is in sync with the tag
         run: |
@@ -51,8 +51,13 @@ jobs:
             exit 1
           fi
 
-      - name: Validate package.xml
+      - name: Validate package.xml (PECL build helper)
         run: pecl package-validate
+
+      - name: Validate composer.json (PIE / Packagist manifest)
+        # PIE and Packagist read composer.json, so it gates the actual
+        # distribution channel. --strict also fails on warnings.
+        run: composer validate --strict --no-check-publish
 
       - name: Build and run the full CI test suite
         # Reuse the same script the build matrix uses: it runs the phpt suite
