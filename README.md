@@ -107,9 +107,7 @@ are never throttled. Give the path a `%p` so each worker writes a distinct file.
 
 Set `rdump.oom_dump_marker=1` and the extension drops an empty `<path>.done`
 once a dump is fully written. A watcher waits for `oom-1234.rdump.done`, then
-ships `oom-1234.rdump`, never racing a half-written file. (There's no PHP
-completion callback; react in-process with a `register_shutdown_function`
-instead.)
+ships `oom-1234.rdump`, never racing a half-written file.
 
 You can also toggle it at runtime, handy for a per-request/per-pid filename,
 or when you cannot edit php.ini:
