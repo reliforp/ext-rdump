@@ -405,7 +405,11 @@ static int rdump_write_region_safe(FILE *fp, int mem_fd, uint64_t start,
         while (filled < want) {
             ssize_t got = pread(mem_fd, buf + filled, want - filled,
                                 (off_t)(start + pos + filled));
+            if (got < 0 && errno == EINTR) {
+                continue;   /* transient interruption: retry the same offset */
+            }
             if (got <= 0) {
+                /* EFAULT (concurrently unmapped) or EOF: zero-fill the rest. */
                 memset(buf + filled, 0, want - filled);
                 break;
             }
