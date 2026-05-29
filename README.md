@@ -25,7 +25,7 @@ and you can:
 
 ## Requirements
 
-- Linux, PHP **7.0 – 8.5** (NTS and ZTS)
+- 64-bit little-endian Linux (x86-64 / arm64), PHP **7.0 – 8.5** (NTS and ZTS)
 - `reli` (only on the machine where you *analyse* the dump)
 
 ## Install

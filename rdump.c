@@ -478,7 +478,22 @@ static int rdump_write_file(const char *path, int full, char **err)
         *err = "failed to open output file for writing";
         return -1;
     }
-    (void)fchmod(fd, 0600);
+    /* A new file is already 0600 (open's mode, narrowed by umask); only a
+     * pre-existing file needs tightening. If we can't (e.g. it's owned by
+     * someone else), abort rather than spill secret memory into a file with
+     * wider permissions. */
+    {
+        struct stat st;
+        if (fstat(fd, &st) != 0 || (st.st_mode & 07777) != 0600) {
+            if (fchmod(fd, 0600) != 0) {
+                close(fd);
+                free(entries);
+                free(maps_buf);
+                *err = "failed to secure output file to 0600";
+                return -1;
+            }
+        }
+    }
 
     FILE *fp = fdopen(fd, "wb");
     if (!fp) {
@@ -495,15 +510,34 @@ static int rdump_write_file(const char *path, int full, char **err)
      * the done: label even on an early jump. */
     int mem_fd = -1;
     char *region_buf = NULL;
-    size_t region_bufsz = 1024 * 1024;
+    size_t region_bufsz = 0;
     if (RDUMP_G(safe_read)) {
         mem_fd = open("/proc/self/mem", O_RDONLY | O_CLOEXEC);
         if (mem_fd >= 0) {
-            region_buf = (char *)malloc(region_bufsz);
-            if (region_buf == NULL) {
-                close(mem_fd);
-                mem_fd = -1;
+            /* Try progressively smaller buffers so a tight heap (e.g. mid-OOM)
+             * can still get a working safe-read path. */
+            static const size_t try_sizes[] = { 1024 * 1024, 256 * 1024, 64 * 1024, 4096 };
+            size_t k;
+            for (k = 0; k < sizeof(try_sizes) / sizeof(try_sizes[0]); k++) {
+                region_buf = (char *)malloc(try_sizes[k]);
+                if (region_buf != NULL) {
+                    region_bufsz = try_sizes[k];
+                    break;
+                }
             }
+        }
+        if (mem_fd < 0 || region_buf == NULL) {
+            /* safe_read was asked for but can't be honored. Don't silently fall
+             * back to the crash-prone direct copy -- fail loudly instead. */
+            if (mem_fd >= 0) {
+                close(mem_fd);
+            }
+            free(region_buf);
+            fclose(fp);
+            free(entries);
+            free(maps_buf);
+            *err = "rdump.safe_read is on but /proc/self/mem could not be set up";
+            return -1;
         }
     }
 #define RDUMP_TRY(expr) do { if ((expr) != 0) { rc = -1; goto done; } } while (0)
