@@ -29,7 +29,7 @@ with reli running on 8.4 (see [§ PHP 7.4](#php-74-zend-34-cross-version-validat
 | Pipeline | `rdump_dump()` / OOM auto-dump → `inspector:memory:analyze -f rmem` → `inspector:memory:report` |
 
 `ext-rdump`'s own test suite (now 7 tests, see [below](#test-added)) is green on
-**both** PHP 8.4.19 and 7.4.33.
+PHP 8.4.19 (**NTS and ZTS**) and 7.4.33.
 
 ## Results at a glance
 
@@ -181,6 +181,64 @@ OpenSSL 3.0 — not needed at runtime here). reli always runs on 8.4 and reads t
 **Takeaway:** capture on 7.4, analyse on 8.4 — the format and the OOM auto-dump
 work across the engine boundary, and reli applies the correct per-version
 (v74 vs v84) layout automatically.
+
+## Concurrency, ZTS, and `safe_read` (the crash path)
+
+The one place ext-rdump can *crash the host process* is the documented ZTS race:
+another thread `munmap`/`mprotect`s a region while the dumping thread is copying
+it. `rdump.safe_read` exists to neutralise it (read regions through
+`/proc/self/mem` so a vanished page returns an error instead of faulting). This
+is the scariest surface, so it was reproduced and the mitigation verified
+directly. PHP 8.4 ZTS was built from source for this.
+
+First, the ZTS basics: ext-rdump **builds and loads on 8.4 ZTS**, the **phpt
+suite is 7/7 green** there, and `rdump.safe_read` **defaults to on under ZTS**
+(off under NTS) — i.e. the safe default is in place exactly where the race
+exists.
+
+Then the race itself, two ways — a raw pthread doing `mmap`/`munmap` churn (NTS),
+and **real PHP interpreter threads** via `ext-parallel` churning their ZendMM
+heaps so freed 2 MB chunks are returned to the OS = `munmap` (ZTS, the
+FrankenPHP worker-threads shape):
+
+| Build | `safe_read` | Result under concurrent `munmap` |
+|---|---|---|
+| NTS 8.4 | `0` | **SIGSEGV during the dump** |
+| NTS 8.4 | `1` | completes every dump, no crash |
+| ZTS 8.4 | `0` | **SIGSEGV during the dump** |
+| ZTS 8.4 | `1` (the default) | completes every dump, no crash |
+
+Both crashes have the **same backtrace**, which pins the hazard precisely:
+
+```
+#0 __memcpy_evex_unaligned_erms
+#3 __GI__IO_fwrite (count=4194304)
+#4 rdump_wr                rdump.c:64
+#5 rdump_write_file        rdump.c:634   <- the safe_read=0 direct-copy branch
+#6 zif_rdump_dump          rdump.c:687
+```
+
+i.e. `fwrite` `memcpy`-ing straight from a region pointer (`(const void *)e->start`)
+that a concurrent thread had just unmapped. With `safe_read=1` that branch is
+replaced by `rdump_write_region_safe()` (pread from `/proc/self/mem`,
+EFAULT→zero-fill), and the dump loop runs to completion every time.
+
+**Conclusion:** the hazard is real and is exactly the one documented; the
+mitigation works; and because `safe_read` ships **on under ZTS**, the default
+configuration is crash-safe. The only way to hit the crash is to *explicitly*
+turn `safe_read` off under concurrent load — which the README already warns
+against. No code change needed; the default is load-bearing and correct.
+
+## Overhead and interop
+
+- **No steady-state overhead.** A CPU + allocation-churn benchmark (best of 5)
+  is within noise loaded vs not (cpu 0.061 s vs 0.062 s; alloc ~0.85 s either
+  way), and unchanged with `rdump.oom_dump` set — consistent with the "only an
+  error-path `zend_error_cb` hook, safe to keep resident" claim.
+- **`zend_error_cb` chaining.** Loaded alongside a second extension that also
+  hooks `zend_error_cb`, an OOM fires **both** handlers (ext-rdump writes its
+  dump *and* the other extension runs) regardless of load order — confirming the
+  "plays nice with php-memory-profiler etc." claim.
 
 ## Rough edges / recommendations
 
