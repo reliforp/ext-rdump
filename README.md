@@ -40,9 +40,9 @@ itself builds on 7.0+):
 pie install reliforp/ext-rdump
 ```
 
-Or from a checkout — `pecl` for the older PHP that PIE can't run on, or plain
-`phpize`. Both build `rdump.so`; then enable `extension=rdump.so` as pecl or
-your distro directs.
+Or from a checkout, using `pecl` for the older PHP that PIE can't run on, or
+plain `phpize`. Both build `rdump.so`; then enable `extension=rdump.so` as pecl
+or your distro directs.
 
 ```bash
 git clone https://github.com/reliforp/ext-rdump && cd ext-rdump
@@ -50,7 +50,7 @@ pecl install package.xml
 # or: phpize && ./configure --enable-rdump && make && sudo make install
 ```
 
-(`pecl install rdump` from pecl.php.net isn't available — it's deprecated and
+(`pecl install rdump` from pecl.php.net isn't available: it's deprecated and
 takes no new packages.)
 
 ## Usage
