@@ -20,6 +20,10 @@ extern zend_module_entry rdump_module_entry;
 
 /* RDUMP dump-file format version we emit (must match reli's reader range). */
 #define RDUMP_FORMAT_VERSION 3
+/* Stringized form for display (keeps MINFO in step with the numeric value). */
+#define RDUMP_STRINGIZE_(x) #x
+#define RDUMP_STRINGIZE(x) RDUMP_STRINGIZE_(x)
+#define RDUMP_FORMAT_VERSION_STR RDUMP_STRINGIZE(RDUMP_FORMAT_VERSION)
 
 /* Per-(thread-)module state, holding the INI-configured auto-dump settings
  * and a re-entrancy guard for the zend_error_cb OOM hook. */

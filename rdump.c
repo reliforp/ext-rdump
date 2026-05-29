@@ -1108,7 +1108,7 @@ PHP_MINFO_FUNCTION(rdump)
     php_info_print_table_start();
     php_info_print_table_row(2, "rdump support", "enabled");
     php_info_print_table_row(2, "extension version", PHP_RDUMP_VERSION);
-    php_info_print_table_row(2, "RDUMP format version", "3");
+    php_info_print_table_row(2, "RDUMP format version", RDUMP_FORMAT_VERSION_STR);
     php_info_print_table_row(2, "target php version tag", php_version);
     php_info_print_table_row(2, "memory_limit auto-dump", "available (zend_error_cb)");
     php_info_print_table_end();
