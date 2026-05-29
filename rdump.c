@@ -314,9 +314,11 @@ static int64_t rdump_rss_bytes(void)
 }
 
 /* Parse a byte quantity like "500", "16K", "256M", "2G" (binary multiples,
- * case-insensitive suffix) into bytes. Negatives / garbage -> 0. An absurdly
- * large value (suffix overflow, or beyond zend_long on a 32-bit build) is
- * clamped to ZEND_LONG_MAX rather than wrapping to a bogus/negative size. */
+ * case-insensitive suffix) into bytes. Lenient: a leading integer with an
+ * optional suffix, any trailing characters ignored (so "10foo" is 10); a value
+ * that doesn't start with a non-negative number yields 0. An absurdly large
+ * value (suffix overflow, or beyond zend_long on a 32-bit build) is clamped to
+ * ZEND_LONG_MAX rather than wrapping to a bogus/negative size. */
 static zend_long rdump_parse_bytes(const char *s)
 {
     if (s == NULL) {
@@ -753,10 +755,16 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
              * the default max of 1 keeps it to a single dump per worker. */
             char expanded[4096];
             const char *out_path = path;
-            if (strchr(path, '%') != NULL
-                && rdump_expand_path(path, expanded, sizeof(expanded)) == 0
-            ) {
-                out_path = expanded;
+            int path_ok = 1;
+            if (strchr(path, '%') != NULL) {
+                if (rdump_expand_path(path, expanded, sizeof(expanded)) == 0) {
+                    out_path = expanded;
+                } else {
+                    /* Template too long to expand. Don't fall back to the
+                     * literal "%p"/"%i" path: that would point every worker or
+                     * thread at the same file and clobber each other. Skip. */
+                    path_ok = 0;
+                }
             }
 
             zend_long max = RDUMP_G(oom_dump_max);
@@ -774,7 +782,7 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
              * combined footprint of many workers, not just one worker's rate.
              * Best-effort: concurrent workers can each pass and overshoot. */
             int over_budget = 0;
-            if (!capped && !too_soon && budget > 0) {
+            if (path_ok && !capped && !too_soon && budget > 0) {
                 char pathcopy[4096];
                 const char *dir = ".";
                 const char *base = out_path;
@@ -800,7 +808,7 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
                 }
             }
 
-            if (!capped && !too_soon && !over_budget) {
+            if (path_ok && !capped && !too_soon && !over_budget) {
                 /* Count the attempt (success or failure) and stamp the time
                  * before writing, so a broken path or full disk cannot retry
                  * without bound either. */

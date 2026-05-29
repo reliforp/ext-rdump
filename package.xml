@@ -41,8 +41,13 @@ Initial release.
    <file name="php_rdump.h" role="src"/>
    <file name="rdump.c" role="src"/>
    <file name="LICENSE" role="doc"/>
+   <file name="README.md" role="doc"/>
    <dir name="tests">
     <file name="dump.phpt" role="test"/>
+    <file name="file_perms.phpt" role="test"/>
+    <file name="full_flag.phpt" role="test"/>
+    <file name="safe_read.phpt" role="test"/>
+    <file name="set_oom_dump.phpt" role="test"/>
    </dir>
   </dir>
  </contents>
