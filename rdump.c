@@ -33,6 +33,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <limits.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -312,7 +313,9 @@ static int64_t rdump_rss_bytes(void)
 }
 
 /* Parse a byte quantity like "500", "16K", "256M", "2G" (binary multiples,
- * case-insensitive suffix) into bytes. Negatives / garbage -> 0. */
+ * case-insensitive suffix) into bytes. Negatives / garbage -> 0. An absurdly
+ * large value (suffix overflow, or beyond zend_long on a 32-bit build) is
+ * clamped to ZEND_LONG_MAX rather than wrapping to a bogus/negative size. */
 static zend_long rdump_parse_bytes(const char *s)
 {
     if (s == NULL) {
@@ -329,14 +332,19 @@ static zend_long rdump_parse_bytes(const char *s)
     while (*end == ' ' || *end == '\t') {
         end++;
     }
+    long long mult = 1;
     switch (*end) {
-        case 'k': case 'K': v *= 1024LL; break;
-        case 'm': case 'M': v *= 1024LL * 1024; break;
-        case 'g': case 'G': v *= 1024LL * 1024 * 1024; break;
-        case 't': case 'T': v *= 1024LL * 1024 * 1024 * 1024; break;
+        case 'k': case 'K': mult = 1024LL; break;
+        case 'm': case 'M': mult = 1024LL * 1024; break;
+        case 'g': case 'G': mult = 1024LL * 1024 * 1024; break;
+        case 't': case 'T': mult = 1024LL * 1024 * 1024 * 1024; break;
         default: break;
     }
-    return v < 0 ? 0 : (zend_long)v;
+    if (v > LLONG_MAX / mult) {
+        return ZEND_LONG_MAX;
+    }
+    v *= mult;
+    return v > (long long)ZEND_LONG_MAX ? ZEND_LONG_MAX : (zend_long)v;
 }
 
 /* Sum the sizes of every *.rdump file in dir, skipping except_base (the file

@@ -60,6 +60,7 @@ segments) when you will analyse it on a host that lacks the original binaries.
 
 ```php
 // kill -USR2 <pid>
+pcntl_async_signals(true);
 pcntl_signal(SIGUSR2, fn() => rdump_dump('/tmp/sig.rdump'));
 ```
 
