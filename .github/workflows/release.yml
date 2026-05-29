@@ -6,6 +6,10 @@ name: release
 # is via PIE/Packagist (PIE installs straight from the tagged source); the
 # tarball is just an alternative for `pecl install ./rdump-X.Y.Z.tgz` from a
 # checkout-free download. There is no upload to pecl.php.net (deprecated).
+#
+# workflow_dispatch is offered for a dry run (validate + build + test + package,
+# minus the Release upload); it requires being dispatched from a v* tag so the
+# version check has a tag to compare against.
 on:
   push:
     tags:
@@ -22,6 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Require a v* tag ref
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ] || ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]'; then
+            echo "::error::run this workflow from a v* tag (got ref_type=$GITHUB_REF_TYPE ref=$GITHUB_REF_NAME)"
+            exit 1
+          fi
+
       - name: Set up PHP with pecl/pear
         uses: shivammathur/setup-php@v2
         with:
@@ -32,25 +43,27 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#v}"
           hdr="$(sed -n 's/^#define PHP_RDUMP_VERSION "\(.*\)"/\1/p' php_rdump.h)"
-          pkg="$(sed -n 's:.*<release>\(.*\)</release>.*:\1:p' package.xml | head -1)"
-          echo "tag=$tag  php_rdump.h=$hdr  package.xml=$pkg"
-          if [ "$tag" != "$hdr" ] || [ "$tag" != "$pkg" ]; then
-            echo "::error::version mismatch (tag=$tag header=$hdr package.xml=$pkg)"
+          rel="$(sed -n 's:.*<release>\(.*\)</release>.*:\1:p' package.xml | head -1)"
+          api="$(sed -n 's:.*<api>\(.*\)</api>.*:\1:p' package.xml | head -1)"
+          echo "tag=$tag  php_rdump.h=$hdr  package.xml release=$rel api=$api"
+          if [ "$tag" != "$hdr" ] || [ "$tag" != "$rel" ] || [ "$tag" != "$api" ]; then
+            echo "::error::version mismatch (tag=$tag header=$hdr release=$rel api=$api)"
             exit 1
           fi
 
       - name: Validate package.xml
         run: pecl package-validate
 
-      - name: Build the extension and run the test suite
+      - name: Build and run the full CI test suite
+        # Reuse the same script the build matrix uses: it runs the phpt suite
+        # (when run-tests.php is available) plus the OOM-hook / safe_read /
+        # marker / budget smoke gates, so the release is held to the same bar.
         run: |
-          phpize
-          ./configure --enable-rdump
-          make -j"$(nproc)"
-          NO_INTERACTION=1 \
-          TEST_PHP_EXECUTABLE="$(command -v php)" \
-          TEST_PHP_ARGS="-d extension=$(pwd)/modules/rdump.so" \
-            php run-tests.php -q tests/
+          docker run --rm \
+            -e CI=1 \
+            -v "$PWD":/ext -w /ext \
+            php:8.3-cli \
+            sh ci/build-and-test.sh
 
       - name: Build the package tarball
         run: |
@@ -63,6 +76,7 @@ jobs:
           php -d extension=rdump -m | grep -qi '^rdump$' && echo "loads OK"
 
       - name: Attach the tarball to the GitHub Release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           files: ./rdump-*.tgz
