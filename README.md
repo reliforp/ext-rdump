@@ -83,11 +83,6 @@ overwrite one path. (This expansion applies to the OOM auto-dump path only —
 both the `rdump.oom_dump` INI value and a `rdump_set_oom_dump()` override — not
 to the literal `$path` you pass to `rdump_dump()`.)
 
-On an `Allowed memory size ... exhausted` fatal, the dump is written straight
-from the engine's error callback (`zend_error_cb`) — on the intact stack,
-before any unwind, and off the `memory_limit` heap (libc `malloc`) — so it
-captures even the OOMs a shutdown handler cannot.
-
 #### Don't let it run away
 
 A worker pinned at `memory_limit` tends to OOM on *every* request, so an
