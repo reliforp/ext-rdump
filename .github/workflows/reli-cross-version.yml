@@ -33,6 +33,10 @@ jobs:
             -v "$PWD":/ext -v "$PWD/out":/out -w /ext \
             "php:${{ matrix.php }}-${{ matrix.ts }}" \
             sh ci/reli-make-dump.sh
+          # The dump is written 0600 by root inside the container; relax it so
+          # the non-root runner user can read it for artifact upload (it's
+          # throwaway CI data, not a real memory image).
+          sudo chmod 0644 out/*.rdump
 
       - uses: actions/upload-artifact@v4
         with:
