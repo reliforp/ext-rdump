@@ -640,9 +640,10 @@ done:
 /* PHP function: bool rdump_dump(string $path, bool $full = false)    */
 /* ------------------------------------------------------------------ */
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_rdump_dump, 0, 0, 1)
-    ZEND_ARG_INFO(0, path)
-    ZEND_ARG_INFO(0, full)
+/* bool rdump_dump(string $path, bool $full = false) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_rdump_dump, 0, 1, _IS_BOOL, 0)
+    ZEND_ARG_TYPE_INFO(0, path, IS_STRING, 0)
+    ZEND_ARG_TYPE_INFO(0, full, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
 PHP_FUNCTION(rdump_dump)
@@ -933,9 +934,10 @@ static void rdump_zend_error_cb(RDUMP_ERROR_CB_PARAMS)
  */
 /* ------------------------------------------------------------------ */
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_rdump_set_oom_dump, 0, 0, 1)
-    ZEND_ARG_INFO(0, path)
-    ZEND_ARG_INFO(0, full)
+/* bool rdump_set_oom_dump(?string $path, bool $full = false) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_rdump_set_oom_dump, 0, 1, _IS_BOOL, 0)
+    ZEND_ARG_TYPE_INFO(0, path, IS_STRING, 1)
+    ZEND_ARG_TYPE_INFO(0, full, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
 PHP_FUNCTION(rdump_set_oom_dump)
