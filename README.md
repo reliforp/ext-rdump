@@ -143,9 +143,6 @@ to persist it across shells):
 # one-time: install a `reli` command backed by the Docker image
 eval "$(docker run --rm --pull=always reliforp/reli-prof docker:print-wrapper)"
 
-# header / memory map / regions
-reli inspector:memory:dump:inspect app.rdump
-
 # analyse into a memory graph (JSON by default)
 reli inspector:memory:analyze app.rdump
 
