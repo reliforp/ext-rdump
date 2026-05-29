@@ -105,25 +105,11 @@ are never throttled. Give the path a `%p` so each worker writes a distinct file.
 
 #### Shipping dumps with a watcher
 
-If a separate process tails the dump directory and ships dumps elsewhere, point
-it at a **completion marker** rather than the `.rdump` itself, so it never grabs a
-half-written file:
-
-```ini
-rdump.oom_dump_marker=1   ; after a complete dump, also create "<path>.done"
-```
-
-The `<path>.done` file is created (empty, `0600`) only once the dump is fully
-written and closed. Wait for `oom-1234.rdump.done`, then ship
-`oom-1234.rdump`. When a dump reuses a path, the old marker is removed *before*
-the new dump is truncated and re-created only when it completes, so a `.done` is
-never stale over a half-rewritten file. This gives the atomic-visibility guarantee a temp-file +
-`rename` would, without the rename's downsides, and works on the OOM death path
-(it's a plain `open`/`close`). There is deliberately **no PHP completion
-callback**: the OOM dump runs inside the engine's error handler on a process that
-has just exhausted `memory_limit`, where re-entering PHP userland is unsafe. To
-react in-process instead, register a shutdown function that checks
-`error_get_last()`, which runs in a safe phase, after the dump is already on disk.
+Set `rdump.oom_dump_marker=1` and the extension drops an empty `<path>.done`
+once a dump is fully written. A watcher waits for `oom-1234.rdump.done`, then
+ships `oom-1234.rdump`, never racing a half-written file. (There's no PHP
+completion callback; react in-process with a `register_shutdown_function`
+instead.)
 
 You can also toggle it at runtime, handy for a per-request/per-pid filename,
 or when you cannot edit php.ini:
