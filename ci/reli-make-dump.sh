@@ -18,6 +18,17 @@ if ! apt-get update >/dev/null 2>&1; then
         # shellcheck disable=SC1091
         . /etc/os-release
         cn="${VERSION_CODENAME:-}"
+        # stretch's os-release has no VERSION_CODENAME, so map from VERSION_ID;
+        # an empty codename produces a malformed sources.list line.
+        if [ -z "$cn" ]; then
+            case "${VERSION_ID:-}" in
+                8) cn=jessie ;;
+                9) cn=stretch ;;
+                10) cn=buster ;;
+                11) cn=bullseye ;;
+                12) cn=bookworm ;;
+            esac
+        fi
     fi
     echo "deb http://archive.debian.org/debian ${cn} main" > /etc/apt/sources.list
     apt-get -o Acquire::Check-Valid-Until=false \
