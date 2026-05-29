@@ -53,8 +53,9 @@ bool rdump_dump(string $path, bool $full = false)
 ```
 
 Writes the dump to `$path`; returns `false` (with an `E_WARNING`) on failure.
-Pass `$full = true` for a self-contained dump (also embeds read-only code
-segments) when you will analyse it on a host that lacks the original binaries.
+Pass `$full = true` for a self-contained dump you can analyse on a host without
+the original binaries. It embeds **every readable mapping** (read-only
+file-backed segments too, not just code), so the dump is noticeably larger.
 
 ### On demand from a signal handler
 
@@ -170,9 +171,11 @@ environment variables, database and API credentials, session tokens, decrypted
 request and response bodies, private keys, other users' data on a shared
 process, and so on.
 
-- The file is created `0600` (owner-only) with `O_NOFOLLOW` and `O_CLOEXEC`, and
-  a pre-existing target is `fchmod`-ed back to `0600`. Write it somewhere only
-  the intended user can read, not a world-readable temp dir or a webroot.
+- The dump is created `0600` (owner-only) with `O_EXCL` / `O_NOFOLLOW` /
+  `O_CLOEXEC`. An existing regular file is unlinked and replaced by a fresh
+  `0600` inode (anything that isn't a regular file is refused), so a stale read
+  fd can't see the new dump. Write it somewhere only the intended user can read,
+  not a world-readable temp dir or a webroot.
 - Delete it once you have finished analysing, and scrub it from any backups or
   log shipping. Treat it like a credential dump, because it can be one.
 - Move dumps to the analysis host over a secure channel; do not email them or

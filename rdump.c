@@ -328,13 +328,13 @@ static int64_t rdump_rss_bytes(void)
 }
 
 /* Parse a byte quantity like "500", "16K", "256M", "2G", "1.5G" (binary
- * multiples, case-insensitive suffix) into bytes. Lenient: a leading decimal
- * number with an optional suffix; trailing characters are ignored (so "10foo"
- * is 10), and a value that isn't a positive number yields 0 (so "0"/""/"abc"
- * mean "off"). A stray decimal point left by a locale mismatch is skipped when
- * looking for the suffix, so "1.5G" can't collapse to a 1-byte budget. An
- * absurdly large value (or one beyond zend_long on a 32-bit build) is clamped
- * to ZEND_LONG_MAX rather than wrapping to a bogus/negative size. */
+ * multiples, case-insensitive suffix) into bytes. Hand-rolled (not strtod) so
+ * '.' is always the decimal point regardless of the process locale -- under a
+ * "," locale strtod would mis-read "1.5G". Lenient: a leading decimal number
+ * with an optional suffix; trailing characters are ignored (so "10foo" is 10),
+ * and a value that isn't a positive number yields 0 ("0"/""/"abc" mean "off").
+ * An absurdly large value (or one beyond zend_long on a 32-bit build) is
+ * clamped to ZEND_LONG_MAX rather than wrapping to a bogus/negative size. */
 static zend_long rdump_parse_bytes(const char *s)
 {
     if (s == NULL) {
@@ -343,19 +343,31 @@ static zend_long rdump_parse_bytes(const char *s)
     while (*s == ' ' || *s == '\t') {
         s++;
     }
-    char *end = NULL;
-    double v = strtod(s, &end);
-    if (end == s || !(v > 0.0)) {
+    double v = 0.0;
+    int have_digits = 0;
+    while (*s >= '0' && *s <= '9') {
+        v = v * 10.0 + (double)(*s - '0');
+        s++;
+        have_digits = 1;
+    }
+    if (*s == '.') {
+        s++;
+        double scale = 1.0;
+        while (*s >= '0' && *s <= '9') {
+            scale *= 10.0;
+            v += (double)(*s - '0') / scale;
+            s++;
+            have_digits = 1;
+        }
+    }
+    if (!have_digits) {
         return 0;
     }
-    /* Skip any leftover fractional/space chars, then read one suffix letter. */
-    const char *q = end;
-    while (*q == '.' || *q == ',' || *q == ' ' || *q == '\t'
-           || (*q >= '0' && *q <= '9')) {
-        q++;
+    while (*s == ' ' || *s == '\t') {
+        s++;
     }
     double mult = 1.0;
-    switch (*q) {
+    switch (*s) {
         case 'k': case 'K': mult = 1024.0; break;
         case 'm': case 'M': mult = 1024.0 * 1024; break;
         case 'g': case 'G': mult = 1024.0 * 1024 * 1024; break;
