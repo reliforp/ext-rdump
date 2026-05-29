@@ -39,6 +39,20 @@
 #include <sys/syscall.h>
 #include <dirent.h>
 
+/* The dump records native pointers/sizes as 64-bit and the file is little-
+ * endian; the resolver and /proc parsing assume Linux. Refuse to build on a
+ * target that would silently produce a malformed or wrong-width dump. */
+#ifndef __linux__
+# error "ext-rdump is Linux-only (uses /proc/self/maps and /proc/self/mem)"
+#endif
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ != 8
+# error "ext-rdump targets 64-bit builds (pointer width must be 8 bytes)"
+#endif
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) \
+    && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+# error "ext-rdump targets little-endian builds"
+#endif
+
 ZEND_DECLARE_MODULE_GLOBALS(rdump)
 
 /* ------------------------------------------------------------------ */
@@ -471,27 +485,33 @@ static int rdump_write_file(const char *path, int full, char **err)
      * O_CREAT's 0600 only applies when we create the file, so fchmod() also
      * tightens a pre-existing one. O_NOFOLLOW refuses to follow a symlink
      * planted at the path; O_CLOEXEC keeps the fd out of any child. */
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0600);
     if (fd < 0) {
         free(entries);
         free(maps_buf);
         *err = "failed to open output file for writing";
         return -1;
     }
-    /* A new file is already 0600 (open's mode, narrowed by umask); only a
-     * pre-existing file needs tightening. If we can't (e.g. it's owned by
-     * someone else), abort rather than spill secret memory into a file with
-     * wider permissions. */
+    /* The target must be a regular file: O_NOFOLLOW blocks a symlink,
+     * O_NONBLOCK keeps a FIFO from blocking the open (which would hang the OOM
+     * death path), and S_ISREG rejects FIFOs/devices/sockets outright. A new
+     * file is already 0600 (open's mode); only tighten a pre-existing one, and
+     * abort if we can't, so secret memory never lands in a wider-readable file. */
     {
         struct stat st;
-        if (fstat(fd, &st) != 0 || (st.st_mode & 07777) != 0600) {
-            if (fchmod(fd, 0600) != 0) {
-                close(fd);
-                free(entries);
-                free(maps_buf);
-                *err = "failed to secure output file to 0600";
-                return -1;
-            }
+        if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+            close(fd);
+            free(entries);
+            free(maps_buf);
+            *err = "output path is not a regular file";
+            return -1;
+        }
+        if ((st.st_mode & 07777) != 0600 && fchmod(fd, 0600) != 0) {
+            close(fd);
+            free(entries);
+            free(maps_buf);
+            *err = "failed to secure output file to 0600";
+            return -1;
         }
     }
 
@@ -760,10 +780,18 @@ static void rdump_write_done_marker(const char *dump_path)
             >= sizeof(marker)) {
         return;
     }
-    int fd = open(marker, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
-    if (fd >= 0) {
-        close(fd);
+    /* O_NONBLOCK so a FIFO planted at the path can't hang us; the regular-file
+     * check then ignores any non-regular target. */
+    int fd = open(marker, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0600);
+    if (fd < 0) {
+        return;
     }
+    struct stat st;
+    if (fstat(fd, &st) == 0 && !S_ISREG(st.st_mode)) {
+        close(fd);
+        return;
+    }
+    close(fd);
 }
 
 /* Release any runtime override set via rdump_set_oom_dump(). */
