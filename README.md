@@ -41,12 +41,15 @@ itself needs PHP 8.1+, though the extension builds on 7.0+):
 pie install reliforp/ext-rdump
 ```
 
-Or from a checkout with `pecl`, which compiles and registers the extension in
-`php.ini` for you — handy on the older PHP that PIE can't run on:
+Or from a checkout with `pecl`, which runs the whole `phpize` build for you —
+handy on the older PHP that PIE can't run on:
 
 ```bash
 git clone https://github.com/reliforp/ext-rdump && cd ext-rdump
 pecl install package.xml
+# then enable it (pecl prints the exact line; on distros with a scan dir use
+# that instead of editing php.ini), e.g.:
+# echo 'extension=rdump.so' | sudo tee /etc/php/$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')/mods-available/rdump.ini
 ```
 
 Or plain `phpize`:
