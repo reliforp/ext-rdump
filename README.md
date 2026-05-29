@@ -86,9 +86,9 @@ does not apply to the literal `$path` you pass to `rdump_dump()`.)
 
 #### Limiting the auto-dump
 
-A worker stuck at `memory_limit` can OOM on many requests, so an unguarded
-auto-dump could write a fresh (often 100 MB+) file every time and fill the disk.
-Three INI guards, all applied together:
+When application code or data keeps exhausting `memory_limit`, a worker can OOM
+request after request, so an unguarded auto-dump could write a fresh (often
+100 MB+) file every time and fill the disk. Three INI guards, all applied together:
 
 ```ini
 rdump.oom_dump_max=1            ; max dumps per worker process (default 1; 0 = unlimited)
