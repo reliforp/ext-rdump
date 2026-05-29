@@ -36,6 +36,7 @@
 #include <limits.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <dirent.h>
 
 ZEND_DECLARE_MODULE_GLOBALS(rdump)
@@ -387,6 +388,35 @@ static uint64_t rdump_dir_rdump_total(const char *dir, const char *except_base)
 
 static const char rdump_magic[8] = {'R', 'D', 'U', 'M', 'P', '\0', '\0', '\0'};
 
+/* Copy [start, start+size) into fp by reading through /proc/self/mem with
+ * pread instead of dereferencing the address directly. If another thread
+ * unmaps or mprotects the region mid-dump (the real hazard under heavy ZTS
+ * load), pread returns EFAULT/short rather than crashing the process; the
+ * unreadable bytes are zero-filled so the region keeps its declared length. */
+static int rdump_write_region_safe(FILE *fp, int mem_fd, uint64_t start,
+                                   uint64_t size, char *buf, size_t bufsz)
+{
+    uint64_t pos = 0;
+    while (pos < size) {
+        size_t want = (size - pos) > (uint64_t)bufsz ? bufsz : (size_t)(size - pos);
+        size_t filled = 0;
+        while (filled < want) {
+            ssize_t got = pread(mem_fd, buf + filled, want - filled,
+                                (off_t)(start + pos + filled));
+            if (got <= 0) {
+                memset(buf + filled, 0, want - filled);
+                break;
+            }
+            filled += (size_t)got;
+        }
+        if (rdump_wr(fp, buf, want) != 0) {
+            return -1;
+        }
+        pos += want;
+    }
+    return 0;
+}
+
 static int rdump_write_file(const char *path, int full, char **err)
 {
     char php_version[8];
@@ -444,6 +474,22 @@ static int rdump_write_file(const char *path, int full, char **err)
     }
 
     int rc = 0;
+    /* Crash-safe region reads via /proc/self/mem (opt-in; default on for ZTS).
+     * Declared before the first RDUMP_TRY so they're valid at the done: label
+     * even on an early jump. */
+    int mem_fd = -1;
+    char *region_buf = NULL;
+    size_t region_bufsz = 1024 * 1024;
+    if (RDUMP_G(safe_read)) {
+        mem_fd = open("/proc/self/mem", O_RDONLY | O_CLOEXEC);
+        if (mem_fd >= 0) {
+            region_buf = (char *)malloc(region_bufsz);
+            if (region_buf == NULL) {
+                close(mem_fd);
+                mem_fd = -1;
+            }
+        }
+    }
 #define RDUMP_TRY(expr) do { if ((expr) != 0) { rc = -1; goto done; } } while (0)
 
     /* Header */
@@ -492,7 +538,12 @@ static int rdump_write_file(const char *path, int full, char **err)
         uint64_t size = e->end - e->start;
         RDUMP_TRY(rdump_wr_u64(fp, e->start));
         RDUMP_TRY(rdump_wr_u64(fp, size));
-        RDUMP_TRY(rdump_wr(fp, (const void *)(uintptr_t)e->start, (size_t)size));
+        if (mem_fd >= 0) {
+            RDUMP_TRY(rdump_write_region_safe(fp, mem_fd, e->start, size,
+                                              region_buf, region_bufsz));
+        } else {
+            RDUMP_TRY(rdump_wr(fp, (const void *)(uintptr_t)e->start, (size_t)size));
+        }
     }
 
 #undef RDUMP_TRY
@@ -500,6 +551,10 @@ done:
     if (rc != 0) {
         *err = "failed while writing dump file (disk full?)";
     }
+    if (mem_fd >= 0) {
+        close(mem_fd);
+    }
+    free(region_buf);
     fclose(fp);
     free(entries);
     free(maps_buf);
@@ -582,11 +637,12 @@ PHP_FUNCTION(rdump_dump)
 
 static void (*rdump_original_error_cb)(RDUMP_ERROR_CB_PARAMS);
 
-/* Expand an OOM-dump path template into buf: %p -> pid, %t -> unix time,
- * %% -> a literal '%'. Any other %x is emitted verbatim. This lets a single
- * static rdump.oom_dump INI value give each FPM worker its own file instead
- * of every worker racing to overwrite one path. Returns 0 on success, -1 if
- * the result would not fit (caller then falls back to the literal template). */
+/* Expand an OOM-dump path template into buf: %p -> pid, %i -> thread id,
+ * %t -> unix time, %% -> a literal '%'. Any other %x is emitted verbatim.
+ * This lets a single static rdump.oom_dump INI value give each FPM worker
+ * (%p) or ZTS thread (%i) its own file instead of racing on one path.
+ * Returns 0 on success, -1 if the result would not fit (caller then falls
+ * back to the literal template). */
 static int rdump_expand_path(const char *tmpl, char *buf, size_t buf_sz)
 {
     size_t o = 0;
@@ -597,6 +653,10 @@ static int rdump_expand_path(const char *tmpl, char *buf, size_t buf_sz)
             p++;
             if (*p == 'p') {
                 n = snprintf(buf + o, buf_sz - o, "%lld", (long long)getpid());
+            } else if (*p == 'i') {
+                /* Thread id: distinguishes ZTS worker threads that share one
+                 * PID, so concurrent OOM dumps don't collide on one path. */
+                n = snprintf(buf + o, buf_sz - o, "%ld", (long)syscall(SYS_gettid));
             } else if (*p == 't') {
                 n = snprintf(buf + o, buf_sz - o, "%lld", (long long)time(NULL));
             } else if (*p == '%') {
@@ -851,6 +911,13 @@ PHP_INI_BEGIN()
         "rdump.oom_dump_marker", "0", PHP_INI_SYSTEM, OnUpdateBool,
         oom_dump_marker, zend_rdump_globals, rdump_globals
     )
+    /* Crash-safe region reads via /proc/self/mem. Off by default (the direct
+     * copy is faster, and safe under NTS); recommended on under ZTS, where a
+     * concurrent thread can unmap a region mid-dump and crash it. */
+    STD_PHP_INI_BOOLEAN(
+        "rdump.safe_read", "0", PHP_INI_SYSTEM, OnUpdateBool,
+        safe_read, zend_rdump_globals, rdump_globals
+    )
 PHP_INI_END()
 
 static const zend_function_entry rdump_functions[] = {
@@ -872,6 +939,7 @@ static PHP_GINIT_FUNCTION(rdump)
     rdump_globals->oom_dump_count = 0;
     rdump_globals->oom_dump_last_ts = 0;
     rdump_globals->oom_dump_marker = 0;
+    rdump_globals->safe_read = 0;
     rdump_globals->oom_dump_runtime = NULL;
     rdump_globals->oom_dump_runtime_full = 0;
     rdump_globals->oom_dump_runtime_set = 0;

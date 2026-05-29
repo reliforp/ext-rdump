@@ -90,6 +90,9 @@ echo "smoke OK (zts=" . (PHP_ZTS ? "yes" : "no") . ")\n";
 PHP
 php -d extension="$SO" /tmp/rdump-smoke.php
 
+# Same gate with crash-safe reads (regions via /proc/self/mem) on.
+php -d extension="$SO" -d rdump.safe_read=1 /tmp/rdump-smoke.php
+
 # --- memory_limit auto-dump hook -------------------------------------
 # Exercises the version-specific zend_error_cb signature at runtime and
 # proves the C-level OOM hook fires where a shutdown handler cannot:

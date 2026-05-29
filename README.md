@@ -77,10 +77,11 @@ rdump.oom_dump=/var/log/php-oom-%p.rdump   ; empty = disabled
 ;rdump.oom_dump_min_interval=0             ; min seconds between auto-dumps (0 = off)
 ```
 
-The path may contain `%p` (PID) and `%t` (Unix time), expanded when the dump
-fires; `%%` is a literal `%`. Under PHP-FPM and other multi-worker setups give
-the template a `%p` so workers write distinct files instead of racing to
-overwrite one path. (This expansion applies only to the OOM auto-dump path:
+The path may contain `%p` (PID), `%i` (thread id), and `%t` (Unix time),
+expanded when the dump fires; `%%` is a literal `%`. Under PHP-FPM give the
+template a `%p` so workers write distinct files instead of racing to overwrite
+one path; under ZTS (FrankenPHP) add `%i` so threads in one process don't
+collide either. (This expansion applies only to the OOM auto-dump path:
 both the `rdump.oom_dump` INI value and a `rdump_set_oom_dump()` override. It
 does not apply to the literal `$path` you pass to `rdump_dump()`.)
 
@@ -178,13 +179,17 @@ process, and so on.
 
 - Linux only (the dump is built from `/proc/self/maps`).
 - The snapshot is taken synchronously in the calling thread, not stop-the-world.
-  On a busy ZTS process other threads may change memory while it is written, so
-  the dump can be internally inconsistent. In the worst case a region read for
-  the maps snapshot is `munmap`/`mprotect`-ed by another thread before its bytes
-  are copied, which can **crash** the process mid-dump. In practice this is rare,
-  and on the OOM death path it costs you nothing you were not already losing, but
-  do not wire `rdump_dump()` into a hot, otherwise-healthy request path expecting
-  it to be perfectly safe under heavy multi-threaded churn.
+  On a busy ZTS process (e.g. FrankenPHP worker threads) other threads may change
+  memory while it is written, so the dump can be internally inconsistent. In the
+  worst case a region is `munmap`/`mprotect`-ed by another thread before its bytes
+  are copied, which can **crash** the process mid-dump. Under NTS no other PHP
+  thread runs during the dump, so this can't happen. Under ZTS, set
+  `rdump.safe_read=1` to read regions through `/proc/self/mem`: a concurrent unmap
+  then yields zero-filled bytes instead of a crash (it can't fix the
+  inconsistency, only the crash). It is off by default because the direct copy is
+  faster and NTS doesn't need it. Also give concurrent dumps distinct paths with
+  `%i` (thread id), e.g. `rdump.oom_dump=/var/log/oom-%p-%i.rdump`, so threads in
+  one process don't collide on a file.
 - The output is byte-compatible with reli's RDUMP format (the same file
   `reli inspector:memory:dump` produces).
 - **No steady-state overhead.** The extension installs no executor or allocator
