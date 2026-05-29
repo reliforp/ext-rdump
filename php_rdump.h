@@ -40,8 +40,8 @@ ZEND_BEGIN_MODULE_GLOBALS(rdump)
     zend_bool oom_dump_marker;       /* rdump.oom_dump_marker (INI): write <path>.done */
     zend_bool safe_read;             /* rdump.safe_read (INI): copy regions via
                                       * /proc/self/mem so a concurrent unmap can't
-                                      * crash the dump. Off by default; recommended
-                                      * under ZTS. */
+                                      * crash the dump. Default on under ZTS, off
+                                      * under NTS. */
     /* Runtime override set via rdump_set_oom_dump(). Owned by us (libc
      * strdup/free), reset each request. Takes precedence over the INI
      * default when oom_dump_runtime_set is true ("" => force-disabled). */

@@ -182,12 +182,12 @@ process, and so on.
   On a busy ZTS process (e.g. FrankenPHP worker threads) other threads may change
   memory while it is written, so the dump can be internally inconsistent. In the
   worst case a region is `munmap`/`mprotect`-ed by another thread before its bytes
-  are copied, which can **crash** the process mid-dump. Under NTS no other PHP
-  thread runs during the dump, so this can't happen. Under ZTS, set
-  `rdump.safe_read=1` to read regions through `/proc/self/mem`: a concurrent unmap
-  then yields zero-filled bytes instead of a crash (it can't fix the
-  inconsistency, only the crash). It is off by default because the direct copy is
-  faster and NTS doesn't need it. Also give concurrent dumps distinct paths with
+  are copied, which can **crash** the process mid-dump. To avoid that,
+  `rdump.safe_read` reads regions through `/proc/self/mem`, so a concurrent unmap
+  yields zero-filled bytes instead of a crash (it can't fix the inconsistency,
+  only the crash). It defaults on under ZTS (where the race exists) and off under
+  NTS (no other PHP thread runs during the dump, and the direct copy is faster);
+  override it either way. Also give concurrent dumps distinct paths with
   `%i` (thread id), e.g. `rdump.oom_dump=/var/log/oom-%p-%i.rdump`, so threads in
   one process don't collide on a file.
 - The output is byte-compatible with reli's RDUMP format (the same file

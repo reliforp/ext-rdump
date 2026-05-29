@@ -525,9 +525,9 @@ static int rdump_write_file(const char *path, int full, char **err)
     }
 
     int rc = 0;
-    /* Crash-safe region reads via /proc/self/mem (opt-in via rdump.safe_read,
-     * off by default). Declared before the first RDUMP_TRY so they're valid at
-     * the done: label even on an early jump. */
+    /* Crash-safe region reads via /proc/self/mem (rdump.safe_read; default on
+     * under ZTS, off under NTS). Declared before the first RDUMP_TRY so they're
+     * valid at the done: label even on an early jump. */
     int mem_fd = -1;
     char *region_buf = NULL;
     size_t region_bufsz = 0;
@@ -977,6 +977,14 @@ PHP_FUNCTION(rdump_set_oom_dump)
 /* Module plumbing.                                                   */
 /* ------------------------------------------------------------------ */
 
+/* Default on where it matters (ZTS, multi-threaded) and off where the direct
+ * copy is safe and faster (NTS). Overridable either way. */
+#ifdef ZTS
+# define RDUMP_SAFE_READ_DEFAULT "1"
+#else
+# define RDUMP_SAFE_READ_DEFAULT "0"
+#endif
+
 PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY(
         "rdump.oom_dump", "", PHP_INI_SYSTEM, OnUpdateString,
@@ -1002,11 +1010,11 @@ PHP_INI_BEGIN()
         "rdump.oom_dump_marker", "0", PHP_INI_SYSTEM, OnUpdateBool,
         oom_dump_marker, zend_rdump_globals, rdump_globals
     )
-    /* Crash-safe region reads via /proc/self/mem. Off by default (the direct
-     * copy is faster, and safe under NTS); recommended under ZTS, where a
-     * concurrent thread can unmap a region mid-dump and crash it. */
+    /* Crash-safe region reads via /proc/self/mem. Defaults on under ZTS (where
+     * a concurrent thread can unmap a region mid-dump and crash it), off under
+     * NTS (the direct copy is faster and can't hit that race). */
     STD_PHP_INI_BOOLEAN(
-        "rdump.safe_read", "0", PHP_INI_SYSTEM, OnUpdateBool,
+        "rdump.safe_read", RDUMP_SAFE_READ_DEFAULT, PHP_INI_SYSTEM, OnUpdateBool,
         safe_read, zend_rdump_globals, rdump_globals
     )
 PHP_INI_END()
@@ -1030,7 +1038,11 @@ static PHP_GINIT_FUNCTION(rdump)
     rdump_globals->oom_dump_count = 0;
     rdump_globals->oom_dump_last_ts = 0;
     rdump_globals->oom_dump_marker = 0;
+#ifdef ZTS
+    rdump_globals->safe_read = 1;
+#else
     rdump_globals->safe_read = 0;
+#endif
     rdump_globals->oom_dump_runtime = NULL;
     rdump_globals->oom_dump_runtime_full = 0;
     rdump_globals->oom_dump_runtime_set = 0;
