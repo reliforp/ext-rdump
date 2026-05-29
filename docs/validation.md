@@ -15,18 +15,21 @@ analysed all of them, and in each case the top findings pointed straight at the
 real cause — the parser AST, the accumulated array, the `Cell` objects, the
 Doctrine UnitOfWork. The headline feature — the automatic dump on
 `memory_limit` exhaustion — fired correctly and produced a report that
-reconstructs the exact call stack at the moment of death.
+reconstructs the exact call stack at the moment of death. This holds across the
+engine boundary too: dumps captured on **PHP 7.4** (Zend 3.4) analyse cleanly
+with reli running on 8.4 (see [§ PHP 7.4](#php-74-zend-34-cross-version-validation)).
 
 ## Environment
 
 | | |
 |---|---|
-| PHP | 8.4.19 (NTS), x86-64 Linux |
+| PHP | 8.4.19 (NTS) for cases 1–5; **7.4.33 (NTS)** for the cross-version run, x86-64 Linux |
 | ext-rdump | this branch, `phpize && ./configure --enable-rdump && make` |
-| reli | `reliforp/reli-prof` 0.13.x-dev |
+| reli | `reliforp/reli-prof` 0.13.x-dev (always runs on 8.4; reads v74 and v84 dumps) |
 | Pipeline | `rdump_dump()` / OOM auto-dump → `inspector:memory:analyze -f rmem` → `inspector:memory:report` |
 
-`ext-rdump`'s own test suite (now 7 tests, see [below](#test-added)) is green.
+`ext-rdump`'s own test suite (now 7 tests, see [below](#test-added)) is green on
+**both** PHP 8.4.19 and 7.4.33.
 
 ## Results at a glance
 
@@ -141,6 +144,43 @@ auto-dump could fill the disk fast. The existing guards
 (`oom_dump_max`, `oom_dump_min_interval`, `oom_dump_max_total`) are the right
 mitigation, and `oom_dump_max_total` is verified above. Worth keeping this
 prominent in the README (it already is).
+
+## PHP 7.4 (Zend 3.4) cross-version validation
+
+`ext-rdump` advertises PHP 7.0–8.5, and 7.x is a genuinely different engine
+(Zend 3.4, different ZendMM and struct layouts), so the OOM path and the dump
+format were re-checked there. PHP 7.4.33 was built from the `php-src` tag
+(the ondrej PPA and php.net are blocked by this environment's network policy;
+`ext/openssl` was left out because PHP 7.4's openssl does not compile against
+OpenSSL 3.0 — not needed at runtime here). reli always runs on 8.4 and reads the
+7.4-produced **v74** dump.
+
+- **Build + suite**: ext-rdump compiles cleanly against 7.4 and **all 7 phpt
+  tests pass** under 7.4.33, including `dump.phpt` (which asserts the dump's
+  `php_version` is `v74`) and the new `oom_dump.phpt`.
+- **less.php v4 OOM (real #104 shape, captured by auto-dump)**: compiling a
+  1.05 MB stylesheet exhausts 7.4's default 128 MB limit
+  ("Allowed memory size of 134217728 bytes exhausted" in `Parser.php`). With
+  `rdump.oom_dump` set, the extension auto-wrote a 137 MB v74 dump at the fatal,
+  and the host reli (8.4) analysed it end to end (2.9M nodes, 90% analysed):
+  - `near_memory_limit` HIGH — peak **99.2%** of `memory_limit` (126.97/128 MB)
+  - the **exact 7.4 call stack**:
+    `Less_Parser::parseMixinArgs:1665 → parseMixinCall:1505 → parsePrimary →
+    … → parse:463 → <main>:23`, matching the fatal line
+  - cause: the AST under construction (`$root`, 110 MB via 2,379 children) and
+    the **v4** node classes by name (`Less_Tree_Rule` ×21,389,
+    `Less_Tree_Ruleset` ×14,256, `Less_Tree_Expression` ×47,530) — note these
+    differ from the v5 names in case 1, confirming reli resolves the v74 heap,
+    not the host's 8.4 layout
+- **HTMLPurifier on 7.4.33**: #270's `unserialize` leak was reported on 7.4.0 /
+  7.4.10 and is **fixed by 7.4.33** (the last 7.4 release), so it stays flat at
+  ~2 MB here too — not reproducible on any PHP we can install. reli still reads
+  the small v74 dump and resolves HTMLPurifier's static config singleton
+  (`HTMLPurifier_ConfigSchema->static_properties->singleton->defaultPlist->…`).
+
+**Takeaway:** capture on 7.4, analyse on 8.4 — the format and the OOM auto-dump
+work across the engine boundary, and reli applies the correct per-version
+(v74 vs v84) layout automatically.
 
 ## Rough edges / recommendations
 
