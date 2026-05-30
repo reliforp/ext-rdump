@@ -1,0 +1,103 @@
+name: release
+
+# On a v* tag: verify the version metadata is in sync, validate both manifests,
+# build and test, build a package tarball, and attach it to the GitHub Release
+# as a convenience source archive. Distribution is via PIE/Packagist (PIE
+# installs straight from the tagged source); the tarball is just an alternative
+# for `pecl install ./rdump-X.Y.Z.tgz` from a checkout-free download. There is
+# no upload to pecl.php.net (deprecated).
+#
+# Tag-push only: there is no workflow_dispatch, because the version checks need
+# a v* tag to compare against. To rehearse the checks before tagging, run them
+# locally (see RELEASING.md).
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Least privilege: the build/validate/package job needs only read. Only the
+# final job that creates the GitHub Release gets contents: write.
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Validate, test and build the tarball for ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # A representative PHP is enough here: this job only validates the
+      # manifests and produces/smoke-installs the source tarball (which is
+      # version-agnostic). The full 7.0-8.5 x NTS/ZTS x arch coverage is the
+      # build / reli-cross-version workflows' job, not the release packaging.
+      - name: Set up PHP with pecl/pear and composer
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: pecl, composer
+
+      - name: Check version metadata is in sync with the tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          hdr="$(sed -n 's/^#define PHP_RDUMP_VERSION "\(.*\)"/\1/p' php_rdump.h)"
+          rel="$(sed -n 's:.*<release>\(.*\)</release>.*:\1:p' package.xml | head -1)"
+          api="$(sed -n 's:.*<api>\(.*\)</api>.*:\1:p' package.xml | head -1)"
+          echo "tag=$tag  php_rdump.h=$hdr  package.xml release=$rel api=$api"
+          if [ "$tag" != "$hdr" ] || [ "$tag" != "$rel" ] || [ "$tag" != "$api" ]; then
+            echo "::error::version mismatch (tag=$tag header=$hdr release=$rel api=$api)"
+            exit 1
+          fi
+
+      - name: Validate package.xml (PECL build helper)
+        run: pecl package-validate
+
+      - name: Validate composer.json (PIE / Packagist manifest)
+        # PIE and Packagist read composer.json, so it gates the actual
+        # distribution channel. --strict fails on warnings; publish checks are
+        # kept on (no --no-check-publish) since the manifest passes them.
+        run: composer validate --strict
+
+      - name: Build and run the full CI test suite
+        # Reuse the same script the build matrix uses: it runs the phpt suite
+        # (when run-tests.php is available) plus the OOM-hook / safe_read /
+        # marker / budget smoke gates, so the release is held to the same bar.
+        run: |
+          docker run --rm \
+            -e CI=1 \
+            -v "$PWD":/ext -w /ext \
+            php:8.3-cli \
+            sh ci/build-and-test.sh
+
+      - name: Build the package tarball
+        run: |
+          pecl package
+          ls -l ./*.tgz
+
+      - name: Install from the tarball as a smoke test
+        run: |
+          sudo pecl install ./rdump-*.tgz
+          php -d extension=rdump -m | grep -qi '^rdump$' && echo "loads OK"
+
+      - name: Upload the tarball for the release job
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-tarball
+          path: ./rdump-*.tgz
+          retention-days: 1
+
+  release:
+    name: Attach the tarball to the GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only this job writes (creates the Release)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-tarball
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ./rdump-*.tgz
+          generate_release_notes: true

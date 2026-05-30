@@ -42,6 +42,7 @@ Initial release.
    <file name="rdump.c" role="src"/>
    <file name="LICENSE" role="doc"/>
    <file name="README.md" role="doc"/>
+   <file name="CHANGELOG.md" role="doc"/>
    <dir name="tests">
     <file name="dump.phpt" role="test"/>
     <file name="file_perms.phpt" role="test"/>
