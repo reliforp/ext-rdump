@@ -25,7 +25,7 @@ compare against the tag. To rehearse them before tagging, run the same steps
 locally:
 
 ```bash
-composer validate --strict --no-check-publish
+composer validate --strict
 pecl package-validate
 docker run --rm -e CI=1 -v "$PWD":/ext -w /ext php:8.3-cli sh ci/build-and-test.sh
 ```

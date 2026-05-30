@@ -7,10 +7,9 @@ name: release
 # for `pecl install ./rdump-X.Y.Z.tgz` from a checkout-free download. There is
 # no upload to pecl.php.net (deprecated).
 #
-# Tag-push only: the version checks need a v* tag to compare against, and a
-# Web-UI workflow_dispatch (which runs against a branch) would just fail that
-# check. To dry-run a tag without publishing, see RELEASING.md
-# (gh workflow run ... --ref vX.Y.Z).
+# Tag-push only: there is no workflow_dispatch, because the version checks need
+# a v* tag to compare against. To rehearse the checks before tagging, run them
+# locally (see RELEASING.md).
 on:
   push:
     tags:
@@ -55,8 +54,9 @@ jobs:
 
       - name: Validate composer.json (PIE / Packagist manifest)
         # PIE and Packagist read composer.json, so it gates the actual
-        # distribution channel. --strict also fails on warnings.
-        run: composer validate --strict --no-check-publish
+        # distribution channel. --strict fails on warnings; publish checks are
+        # kept on (no --no-check-publish) since the manifest passes them.
+        run: composer validate --strict
 
       - name: Build and run the full CI test suite
         # Reuse the same script the build matrix uses: it runs the phpt suite
