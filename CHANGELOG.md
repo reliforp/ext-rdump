@@ -4,13 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
-## 0.1.0
+## 1.0.0
 
-Initial release: in-process memory dumps in reli's RDUMP format, without
+First stable release: in-process memory dumps in reli's RDUMP format, without
 `ptrace`.
 
 ### Added
-- `rdump_dump(string $path, bool $full = false): bool` — write a dump of the
+- `rdump_dump(string $path, bool $full = false): bool`: write a dump of the
   current process's memory. `$full` also embeds read-only file-backed segments
   for host-independent analysis.
 - `memory_limit` auto-dump via `zend_error_cb` (opt-in `rdump.oom_dump`),

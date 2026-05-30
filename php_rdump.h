@@ -16,7 +16,7 @@
 extern zend_module_entry rdump_module_entry;
 #define phpext_rdump_ptr &rdump_module_entry
 
-#define PHP_RDUMP_VERSION "0.1.0"
+#define PHP_RDUMP_VERSION "1.0.0"
 
 /* RDUMP dump-file format version we emit (must match reli's reader range). */
 #define RDUMP_FORMAT_VERSION 3
