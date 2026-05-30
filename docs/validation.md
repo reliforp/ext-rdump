@@ -297,3 +297,28 @@ fork-pool/request lifecycle.
 `rdump.oom_dump` set, then asserts from the parent that the extension
 auto-wrote a well-formed RDUMP file plus its `.done` marker — i.e. that the OOM
 hook fires end to end, not just that the setter returns `true`.
+
+## Where this leaves the release
+
+Putting this run together with what CI already enforces, the load-bearing
+surface is covered:
+
+- **Build/test matrix in CI:** PHP 7.0–8.5 × NTS/ZTS on x86-64, plus an
+  `build-arm64` job (`ubuntu-24.04-arm`) for representative versions — so the
+  advertised platforms (incl. arm64) build and pass the phpt suite.
+- **OOM-guard suite in CI:** the hook firing, `%p`/`%i`/`%%`, per-worker
+  `oom_dump_max` (via the built-in server's surviving worker), `min_interval`,
+  `max_total`, and the `.done` marker.
+- **Leak check in CI:** valgrind clean (8.4 NTS + ZTS).
+- **reli reads every version in CI:** the `reli-cross-version` workflow dumps on
+  7.0–8.5 (NTS+ZTS) and analyses them all with reli on 8.4 — the per-version
+  (v70…v85) read path is now regression-guarded, not just spot-checked.
+- **This run added the depth CI can't easily express:** real-world findings on
+  five libraries, the 7.4 OOM analysed cross-version, the ZTS `safe_read`
+  crash/mitigation proven with a backtrace, real php-fpm e2e, and the
+  overhead/interop checks.
+
+What remains is genuinely nice-to-have rather than gating: a differential
+fidelity check against reli's own ptrace dumper, a `pecl`/PIE install smoke on a
+stock distro, and a long soak to back the "keep it resident" story. None of
+these block calling the extension stable; they harden confidence further.
