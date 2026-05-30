@@ -46,6 +46,7 @@ Initial release.
     <file name="dump.phpt" role="test"/>
     <file name="file_perms.phpt" role="test"/>
     <file name="full_flag.phpt" role="test"/>
+    <file name="oom_dump.phpt" role="test"/>
     <file name="overwrite_inode.phpt" role="test"/>
     <file name="safe_read.phpt" role="test"/>
     <file name="set_oom_dump.phpt" role="test"/>
