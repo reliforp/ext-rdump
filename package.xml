@@ -22,18 +22,18 @@ Linux only.
   <email>sji@sj-i.dev</email>
   <active>yes</active>
  </lead>
- <date>2026-05-28</date>
+ <date>2026-05-30</date>
  <version>
-  <release>0.1.0</release>
-  <api>0.1.0</api>
+  <release>1.0.0</release>
+  <api>1.0.0</api>
  </version>
  <stability>
-  <release>beta</release>
-  <api>beta</api>
+  <release>stable</release>
+  <api>stable</api>
  </stability>
  <license uri="https://opensource.org/licenses/MIT">MIT</license>
  <notes>
-Initial release.
+First stable release.
  </notes>
  <contents>
   <dir name="/">
